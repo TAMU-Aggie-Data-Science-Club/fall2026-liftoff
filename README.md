@@ -1,26 +1,64 @@
-# IDE Data Science Club — Project Template
+# Corvus — Beginner
 
-A starter repository for **project managers (PMs)** in the IDE Data Science Club. Fork or "Use this template" to spin up a new project with the conventions, workflow, and scaffolding the club expects already in place.
+*ADSC Catalyst Project · Fall 2026*
 
-## What's in here
+## Overview
+
+Corvus (aka "Launch Path") builds a mission-control-style dashboard that predicts rocket launch success and delays from historical launch data, weather, rocket type, and site information. It also visualizes rocket trajectories using physics-based equations, comparing expected flight paths against real launch behavior.
+
+## Objective
+
+Ship two things that work together:
+
+1. A **prediction model** for launch outcome (success / delay) given pre-launch features.
+2. A **trajectory visualizer** grounded in real physics (ballistic → simple gravity turn), so predictions and paths sit side-by-side in one dashboard.
+
+## Suggested tech stack
+
+- **Data processing:** Python, Pandas, NumPy
+- **Modeling / ML:** XGBoost (classification for success, regression for delay hours)
+- **Physics:** NumPy-based ODE integration for trajectory (`scipy.integrate.solve_ivp`)
+- **Visualization:** Plotly, Matplotlib, Streamlit
+- **Data sources:** SpaceX API, NASA Open Data, public launch data
+
+See [`DATA.md`](DATA.md) for concrete data sources and how to access them.
+
+## What team members will gain
+
+- A dashboard that replicates the feel of real mission-control analysis
+- Predictive modeling for launch success and delays on real data
+- The rare and marketable skill of combining physics with data science
+
+## Suggested scope (v1)
+
+Cover **two programs**: SpaceX (rich API, modern) plus one historical NASA program (e.g., Space Shuttle) from NASA Open Data.
+
+Build:
+
+1. Ingestion for launches, rockets, and sites,
+2. Feature engineering (rocket family, payload mass, launch site, weather at launch time),
+3. XGBoost model for success + a second model for delay hours,
+4. Physics module: 2D ballistic + simple gravity-turn model, ODE-integrated, plotted against actual trajectory where telemetry is available,
+5. Streamlit dashboard tying model + trajectory + historical explorer.
+
+**Out of scope for v1:** real-time telemetry ingest, atmospheric drag beyond first-order, orbit-insertion accuracy, orbital mechanics after burnout.
+
+See [`DELIVERABLES.md`](DELIVERABLES.md) for the suggested deliverable breakdown and rough timeline.
+
+## Repository map
 
 | File / folder | Purpose |
 |---|---|
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | **Start here.** How the team runs the project on GitHub — PM vs. member roles, the issue → PR → `main` flow, branching, worktrees, and reviews. |
-| [`DELIVERABLES.md`](DELIVERABLES.md) | The PMs' estimated deliverables and a rough timeline. A living plan, not a contract. |
-| [`DATA.md`](DATA.md) | Where the project's data comes from, how to find sources, and how to think about using them. Tracked in git. |
-| [`data/`](data/) | Working folder for actual datasets. **Git-ignored** — data never gets committed. |
-| [`AGENTS.md`](AGENTS.md) | The strict, machine-facing version of the workflow, for AI coding agents. |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | **Start here.** How the team runs the project on GitHub — PM vs. member roles, the issue → PR → `main` flow, branching, worktrees, reviews. |
+| [`DELIVERABLES.md`](DELIVERABLES.md) | Suggested deliverables and rough timeline. A living plan, not a contract. |
+| [`DATA.md`](DATA.md) | Suggested data sources, how to access them, and the source register. |
+| [`data/`](data/) | Local working folder for datasets. **Git-ignored** — data is never committed. |
+| [`AGENTS.md`](AGENTS.md) | Machine-facing workflow rules for AI coding agents. |
 
-## How to use this template
+## Notes for PMs
 
-1. **Create your repo from it.** On GitHub, click **Use this template → Create a new repository** (or fork it), then clone your copy.
-2. **Read [`CONTRIBUTING.md`](CONTRIBUTING.md).** Everyone on the team reads it; it's the operating manual.
-3. **Fill in [`DELIVERABLES.md`](DELIVERABLES.md)** with your project's real deliverables and dates.
-4. **Fill in [`DATA.md`](DATA.md)** with your actual data sources.
-5. **Turn on branch protection** for `main` (require a PR + one approval) and, ideally, **enable a code-review agent** (Codex or Claude auto-review) — see CONTRIBUTING.
-6. **Open your first issue** and run the flow.
+This README, [`DELIVERABLES.md`](DELIVERABLES.md), and [`DATA.md`](DATA.md) are **suggestions**, not commitments. Rewrite them as the team scopes the real project.
 
-## The one-paragraph version
+## Notes for members
 
-Every change starts as a GitHub **Issue**, gets built on a **branch** (organized as a small tree per issue, each slice optionally in its own **worktree**), is opened as a **pull request**, reviewed (by a teammate and, ideally, an auto-review agent), and merged **up the tree**. Only a **PM** merges the issue's integration branch into `main`. `main` is always in a known-good state. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full workflow.
+Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before touching code. Then pick up an issue from the board.
