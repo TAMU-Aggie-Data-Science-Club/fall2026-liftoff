@@ -1,17 +1,17 @@
-# Corvus — Beginner
+﻿# Liftoff â€” Beginner
 
-*ADSC Catalyst Project · Fall 2026*
+*ADSC Catalyst Project Â· Fall 2026*
 
 ## Overview
 
-Corvus (aka "Launch Path") builds a mission-control-style dashboard that predicts rocket launch success and delays from historical launch data, weather, rocket type, and site information. It also visualizes rocket trajectories using physics-based equations, comparing expected flight paths against real launch behavior.
+Liftoff builds a mission-control-style dashboard that predicts rocket launch success and delays from historical launch data, weather, rocket type, and site information. It also visualizes rocket trajectories using physics-based equations, comparing expected flight paths against real launch behavior.
 
 ## Objective
 
 Ship two things that work together:
 
 1. A **prediction model** for launch outcome (success / delay) given pre-launch features.
-2. A **trajectory visualizer** grounded in real physics (ballistic → simple gravity turn), so predictions and paths sit side-by-side in one dashboard.
+2. A **trajectory visualizer** grounded in real physics (ballistic â†’ simple gravity turn), so predictions and paths sit side-by-side in one dashboard.
 
 ## Suggested tech stack
 
@@ -49,10 +49,10 @@ See [`DELIVERABLES.md`](DELIVERABLES.md) for the suggested deliverable breakdown
 
 | File / folder | Purpose |
 |---|---|
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | **Start here.** How the team runs the project on GitHub — PM vs. member roles, the issue → PR → `main` flow, branching, worktrees, reviews. |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | **Start here.** How the team runs the project on GitHub â€” PM vs. member roles, the issue â†’ PR â†’ `main` flow, branching, worktrees, reviews. |
 | [`DELIVERABLES.md`](DELIVERABLES.md) | Suggested deliverables and rough timeline. A living plan, not a contract. |
 | [`DATA.md`](DATA.md) | Suggested data sources, how to access them, and the source register. |
-| [`data/`](data/) | Local working folder for datasets. **Git-ignored** — data is never committed. |
+| [`data/`](data/) | Local working folder for datasets. **Git-ignored** â€” data is never committed. |
 | [`AGENTS.md`](AGENTS.md) | Machine-facing workflow rules for AI coding agents. |
 | [`CODEOWNERS`](CODEOWNERS) | **Team roster + review policy.** PMs, members, and the code-owner rule for PRs into `main`. |
 
