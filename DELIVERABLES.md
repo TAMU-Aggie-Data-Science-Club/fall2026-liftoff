@@ -4,6 +4,12 @@
 
 ## Project goal
 
+Liftoff builds a mission-control-style dashboard that predicts rocket launch success and delays from historical launch data, weather, rocket type, and site information. It also visualizes rocket trajectories using physics-based equations, comparing expected flight paths against real launch behavior.
+
+A prediction model for launch outcome (success / delay) given pre-launch features.
+
+A trajectory visualizer grounded in real physics (ballistic → simple gravity turn), so predictions and paths sit side-by-side in one dashboard.
+
 ## Subteams and responsibilities
 
 We will have three subteams of 2-3 members. Members can express preferences, suggest approaches, and discuss changing roles with the PMs.
