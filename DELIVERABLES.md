@@ -1,6 +1,56 @@
-# Deliverables & Timeline
+# Liftoff - Deliverables & Timeline
 
 > **How to read this file.** This is the PMs' best current estimate of what Liftoff needs to ship and roughly when. It is a **living plan, not a contract**. The authoritative picture lives in **GitHub Issues and the Project board**.
+
+## Project goal
+
+## Subteams and responsibilities
+
+We will have three subteams of 2-3 members. Members can express preferences, suggest approaches, and discuss changing roles with the PMs.
+
+| Subteam | Semester responsibilities |
+| --- | --- |
+| Data Engineering & ML | Ingestion pipelines for SpaceX and NASA APIs, feature engineering, XGBoost training for classification and delay regression, cross-validation, and error analysis. |
+| Physics & Trajectory Modeling | Differential equations setup using scipy.integrate.solve_ivp, 2D ballistic and gravity-turn flight simulation, trajectory coordinate exports, and numerical sanity checks against telemetry |
+| Dashboard & Integration | Streamlit application layout, Plotly visual components, mission-control styling, user parameter controls, and end-to-end integration of ML model predictions with physics plots. |
+
+Each subteam will divide work into individual or paired tasks and choose a working coordinator to communicate progress and blockers.
+
+Coordinators also contribute to the work. They are not expected to complete the entire team's assignment.
+
+### PM responsibilities
+
+Amulya and a second PM will:
+- Assign and clarify deliverables.
+- Coordinate dependencies between subteams.
+- Help members resolve blockers.
+- Review integration pull requests before merging into main.
+- Track attendance and individual contributions.
+- Maintain the project plan and submit weekly PM reports.
+
+## Meetings and communication
+
+Regular project syncs are TBD after the first team meeting (Tuesday, October 13th at 5:15)
+
+They will take place virtually in the Project Sync voice channel on the Liftoff Discord
+
+## Initial datasets
+
+We will begin with:
+
+r/SpaceX REST API - provides structured data on modern commercial spaceflight, allowing us to train models to predict launch success and delay hours
+
+NASA Space Shuttle Mission Data (NASA Open Data) - expands the dataset to predict launches outside of SpaceX flights, allows the user to benchmark modern flights against historical data
+
+Open-Meteo Historical Weather API - forms the key feature pipeline for the XGBoost ML models, allowing the risk readout to update dynamically when a user adjusts weather variables
+
+LLNL / CelesTrak Satellite Catalog (Space-Track TLEs) - provides actual positional coordinates recorded from real flights, acts as the baseline benchmark for the trajectory visualizer
+
+## Week 1 — Quick assignment
+
+**Due Sunday, October 11, 2026, at noon Central.**
+
+Read through the responsibilities of each subteam and DM a.bisaria on Discord with your resume and a brief paragraph explaining why you would be fit for the role and why you are interested in it. This will allow us to finalize subteams and begin working on the project on Tuesday when we have the first meeting.
 
 ## Milestones (suggested)
 
