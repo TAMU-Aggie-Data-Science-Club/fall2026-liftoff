@@ -11,6 +11,7 @@ PMs can push to `main` directly and merge pull requests.
 
 ## Members
 
+- @PranavSundar
 - @Rig-6
 - @TinyTree3
 - @emisother08-sudo
