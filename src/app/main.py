@@ -22,13 +22,16 @@ with col1:
         fuel = st.slider("Fuel Amount: ", min_value = 0, max_value = 100)
 
 with col2:
-    #this is where the graphs will be placed for now
-    col2.metric("Placeholder", 0)
-    placeholder1 = st.empty()
+    with st.container(border = True):
+        #this is where the graphs will be placed for now
+        st.metric("Placeholder", 0)
+        placeholder1 = st.empty()
 
 with col3:
-    #made another placeholder
-    col3.metric("Placeholder", 0)
-    placeholder2 = st.empty()
+    with st.container(border = True):
+        #made another placeholder
+        st.metric("Placeholder", 0)
+        placeholder2 = st.empty()
+
 
 
