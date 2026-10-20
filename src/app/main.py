@@ -17,7 +17,7 @@ with col1:
         st.subheader("Weather Condition Overrides: ")
         weather = st.selectbox("Select Weather Condition", ["option a", "option b", "option c"])
 
-        #not sure if this is something that would be added but I can always remove it
+        #not sure if this is something that would be added but I can change it
         st.subheader("Fuel")
         fuel = st.slider("Fuel Amount: ", min_value = 0, max_value = 100)
 
