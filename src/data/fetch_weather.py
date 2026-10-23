@@ -17,7 +17,7 @@ WEATHER_VARIABLES = [
     "wind_speed_10m",
     "precipitation",
     "cloud_cover",
-    "wind_speed_250hPa",
+    "wind_speed_10m",
 ]
 
 
