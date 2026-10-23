@@ -6,12 +6,12 @@ Look-up reference for the data Liftoff uses: where it comes from, what the field
 
 1. [Source register](#1-source-register)
 2. [Missing-data policy](#2-missing-data-policy)
-3. [SpaceX REST API](#3-spacex-rest-api)
+3. [Launch Library 2 API](#3-launch-library-2-api)
 4. [Open-Meteo Historical Weather API](#4-open-meteo-historical-weather-api)
 5. [Unit conversions](#5-unit-conversions)
 6. [Storage layout (`data/`)](#6-storage-layout-data)
 
-> Status: only the SpaceX API and Open-Meteo are documented so far. NASA Space Shuttle data and CelesTrak / Space-Track TLEs (listed in [`DELIVERABLES.md`](DELIVERABLES.md)) will be added in later issues.
+> Status: only Launch Library 2 and Open-Meteo are documented so far. The earlier SpaceX community API was dropped (archived and unreachable). NASA Space Shuttle data and CelesTrak / Space-Track TLEs (listed in [`DELIVERABLES.md`](DELIVERABLES.md)) will be added in later issues.
 
 ---
 
@@ -19,85 +19,84 @@ Look-up reference for the data Liftoff uses: where it comes from, what the field
 
 | Source | Origin / URL | Access method | License | Sensitivity | Notes |
 |---|---|---|---|---|---|
-| SpaceX REST API (v5) | `https://api.spacexdata.com/v5` (community project: [r-spacex/SpaceX-API](https://github.com/r-spacex/SpaceX-API)) | Public HTTPS GET, JSON, no auth | Repo code is Apache-2.0. Data license not stated: **TBD** | Public, no PII | **Repo archived 2026-06-06; API was unreachable on 2026-10-20** (see [§3.1](#31--access-warning)). Not affiliated with SpaceX. |
+| Launch Library 2 (LL2) API | `https://ll.thespacedevs.com/2.3.0` ([docs](https://thespacedevs.com/llapi), by The Space Devs) | Public HTTPS GET, JSON, no auth (free tier) | Not stated on the API page: **TBD** | Public, no PII | Free tier is **15 unauthenticated requests per hour**. Covers all providers and historical launches, not just SpaceX. Replaces the SpaceX community API. |
 | Open-Meteo Historical Weather API | `https://archive-api.open-meteo.com/v1/archive` | Public HTTPS GET, JSON, no key (free tier) | CC BY 4.0, **non-commercial use only** on the free tier | Public, no PII | Attribution required. Backed by ERA5 / ERA5-Land reanalysis. |
 
 ---
 
 ## 2. Missing-data policy
 
-> ## ⚠️ NEEDS DISCUSSION WITH PM ⚠️
-> **Interim rule: if a source does not provide a data point, store it as `null` (JSON `null` / pandas `NaN` / `None`). Do not impute, drop rows, or fill with 0 in the pipeline.**
+> ## ⚠️ TEMPORARY - NEEDS DISCUSSION WITH PM ⚠️
+> **Interim rule, by kind of field:**
+> - **Missing labels** (categorical or text fields, including the outcome): either **generalize** to a coarser category or store `null`. Decide per field and write down which.
+> - **Missing numbers**: keep as `null` (JSON `null` / pandas `NaN` / `None`) **and flag them**, so downstream code can tell "missing" apart from a real value. Never fill with 0.
 >
-> This is a placeholder. Whether to impute, drop, or flag missing values (and per-field) has **not** been decided and **must be discussed with a PM** before feature engineering starts. Do not build logic that depends on the current choice.
+> Do not drop rows or impute in the pipeline. The flagging mechanism (for example a companion `<column>_missing` boolean), the generalization scheme, and per-field choices are **not decided**: **TBD, must be discussed with a PM** before feature engineering starts. Do not build logic that depends on the current choice.
 
 ---
 
-## 3. SpaceX REST API
+## 3. Launch Library 2 API
 
-### 3.1  ⚠️ Access warning
+LL2 is a community-run launch database from The Space Devs. It covers launches from every provider and goes back to 1957, so it can also supply the historical comparison. Fields below were read from a live response (`/2.3.0/launches/?limit=1&mode=detailed`, checked 2026-10-22). Anything not seen in that response is marked **TBD**.
 
-> **Trouble accessing this API.**
-> - The upstream repo `r-spacex/SpaceX-API` was **archived (read-only) on 2026-06-06**. Last code push was 2024-08-17.
-> - On **2026-10-20** requests to `https://api.spacexdata.com/v4/launches/latest`, `/v5/launches/latest` and `/v5/launchpads` failed with Cloudflare errors **522 / 525** (or no connection). The status page (`status.spacexdata.com`) still loaded.
-> - Because of this, **the fields below come from the repo's schema file, not from live responses.** Field names, types and defaults are from the schema; **units and descriptions are not given there and are marked `TBD`/assumed**. Re-verify against a live response once the API responds.
-> - Flag to PM: this source is at risk of staying down. A replacement would be a data-source decision (not made here).
-
-### 3.2 Endpoints
+### 3.1 Endpoints
 
 | Endpoint | Returns | Status |
 |---|---|---|
-| `GET /v5/launches` | All launches (past and upcoming) | Path from the repo's launches schema; not re-tested live |
-| `GET /v5/launches/latest` | Latest launch | Named in the README example |
-| `GET /v5/launches/{id}` | One launch | Assumed from API convention: **TBD** |
-| `rockets`, `launchpads`, `landpads`, `payloads`, `cores`, `capsules`, `starlink` | Related datasets referenced by UUID from launches | Dataset names from the README; **exact paths and schemas TBD** |
+| `GET /2.3.0/launches/` | Paginated list of all launches (past and upcoming) | Verified live |
+| `GET /2.3.0/launches/{id}/` | One launch (`id` is a UUID) | Assumed from the `url` field in responses: **TBD** |
+| `launches/previous`, `launches/upcoming` | Past-only / future-only launch lists | Assumed from API convention: **TBD** |
+| `pad`, `rocket.configuration`, `launch_service_provider`, `mission` | Embedded in each launch when `mode=detailed` | Verified live |
 
-Base URL: `https://api.spacexdata.com`. Auth: none. Responses: JSON.
+Base URL: `https://ll.thespacedevs.com`. Auth: none. Responses: JSON. Use `?mode=detailed` to get the nested objects shown below.
 
-### 3.3 Rate limits
+Pagination envelope: `count` (total matches, 8130 at time of check), `next` and `previous` (URLs, `null` at the ends), `results` (array). Page size is set with `limit` and `offset`. **Maximum `limit`: TBD.**
 
-Not stated in the repo or README. **TBD.** Until confirmed, fetch politely: one bulk request for `/v5/launches`, cache to `data/raw/`, don't re-poll.
+### 3.2 Rate limits
 
-### 3.4 Launch object fields (`/v5/launches`)
+The free tier allows **15 unauthenticated requests per hour** ([source](https://thespacedevs.com/llapi)); higher rates need a paid plan. A full pull of ~8,000 launches will take many pages, so it must be spread over several hours. Fetch once, cache every page to `data/raw/`, and never re-poll. Whether a dev/snapshot endpoint exists is **TBD**.
 
-Types are from the schema file. "Nullable" means the schema default is `null`. Units are **TBD** unless obvious from the name.
+### 3.3 Launch object fields
+
+Types and examples are from the live response. "Nullable" is only marked where `null` was seen; other fields may also be `null` (**TBD**). Units are noted where the response or name makes them clear.
 
 | Field | Type | Nullable | Unit / format | Notes |
 |---|---|---|---|---|
-| `flight_number` | number | no | count | Sequential launch number |
-| `name` | string | no | | Unique mission name |
-| `date_utc` | string | no | ISO 8601, UTC | |
-| `date_unix` | number | no | Unix time (seconds, assumed) | |
-| `date_local` | string | no | ISO 8601 with local offset | |
-| `date_precision` | string | no | enum: `half`, `quarter`, `year`, `month`, `day`, `hour` | How exact the date is. Low precision means the time of day is unreliable. |
-| `static_fire_date_utc` | string | yes | ISO 8601, UTC | |
-| `static_fire_date_unix` | number | yes | Unix time (seconds, assumed) | |
-| `tbd` | boolean | no (default `false`) | | Date to be determined. Note: the schema file spells this `tdb`. **Check the live key name.** |
-| `net` | boolean | no (default `false`) | | "No earlier than" date |
-| `window` | number | yes | seconds (assumed) | Launch window length |
-| `rocket` | UUID | yes | | Foreign key to rockets dataset |
-| `success` | boolean | yes | | **Outcome label.** `null` for upcoming or unknown launches |
-| `failures[]` | array of object | no | | `time` (number, seconds after liftoff, assumed), `altitude` (number, km, assumed), `reason` (string) |
-| `upcoming` | boolean | no | | `true` means no outcome yet. Exclude from training |
-| `details` | string | yes | free text | |
-| `fairings` | object | no | | `reused`, `recovery_attempt`, `recovered` (boolean, nullable), `ships` (array of UUID) |
-| `crew[]` | array of object | no | | `crew` (UUID, nullable), `role` (string, nullable) |
-| `ships`, `capsules`, `payloads` | array of UUID | no | | Foreign keys. Payload mass lives in the payloads dataset |
-| `launchpad` | UUID | yes | | Foreign key to launchpads dataset. Needed to look up weather coordinates |
-| `cores[]` | array of object | no | | `core` (UUID), `flight` (number, this core's flight count), `gridfins`, `legs`, `reused`, `landing_attempt`, `landing_success` (boolean), `landing_type` (string), `landpad` (UUID). All nullable |
-| `links` | object | no | URLs | `patch.{small,large}`, `reddit.{campaign,launch,media,recovery}`, `flickr.{small,original}` (arrays), `presskit`, `webcast`, `youtube_id`, `article`, `wikipedia`. Not model features |
-| `auto_update` | boolean | no (default `true`) | | Internal flag |
+| `id` | string (UUID) | no | | Primary key |
+| `name` | string | no | | `"<Rocket> \| <Mission>"` |
+| `slug`, `url` | string | no | | |
+| `launch_designator` | string | maybe | COSPAR, e.g. `1957-001` | |
+| `status` | object | no | `id`, `name`, `abbrev`, `description` | **Outcome label.** Only `id 3 = "Launch Successful"` (`Success`) was observed. The full status list (failure, partial failure, TBD, scheduled...) is **TBD** |
+| `net` | string | no | ISO 8601, UTC | "No earlier than" launch time. Moves as the launch slips |
+| `net_precision` | object | yes | | `null` in the sample. Presumably how exact `net` is: **TBD** |
+| `window_start`, `window_end` | string | no | ISO 8601, UTC | Launch window. Window length is derivable |
+| `last_updated` | string | no | ISO 8601, UTC | |
+| `probability` | number | yes | | Forecast launch probability. `null` in the sample, units **TBD** |
+| `weather_concerns` | string | yes | | `null` in the sample |
+| `failreason` | string | no | free text | Empty string `""` when there is none |
+| `launch_service_provider` | object | no | | `id`, `name`, `abbrev`, `type`, `country[]`, `founding_year`, `total_launch_count`, `successful_launches`, `failed_launches`, ... |
+| `rocket.configuration` | object | no | | `id`, `name`, `full_name`, `variant`, `reusable` (boolean), `length`, `diameter`, `leo_capacity`, `gto_capacity`, `successful_launches`, `failed_launches`, ... Capacity and size fields were `null` in the sample; units **TBD** |
+| `rocket.launcher_stage`, `rocket.spacecraft_stage`, `rocket.payloads` | arrays | no | | Stage/booster details. Contents **TBD** |
+| `mission` | object | yes | | `name`, `type` (e.g. `Test Flight`), `description`, `orbit{name, abbrev}` |
+| `pad` | object | no | | `id`, `name`, `latitude`, `longitude` (numbers, WGS84), `location{name, country, timezone_name, latitude, longitude}`. Used to look up weather |
+| `*_launch_attempt_count`, `*_launch_attempt_count_year` | integer | no | count | Orbital / location / pad / agency counters |
+| `pad_turnaround` | string | no | ISO 8601 duration (`P0D`) | |
+| `webcast_live`, `vid_urls`, `info_urls`, `image`, `mission_patches`, `timeline`, `updates`, `program`, `hashtag`, `infographic`, `flightclub_url` | various | | | Media and metadata. Not model features |
 
-**Delay hours are not a field.** The API has no "delay" value. Defining delay (and deriving it, e.g. from `date_utc` vs. an original planned date) is a scoping decision still open in [`DELIVERABLES.md`](DELIVERABLES.md) (milestone 1).
+**Delay hours are not a field.** LL2 has no "delay" value. `net` changes over time and only its latest value is returned by a normal request, so deriving a delay needs a defined baseline. That is a scoping decision still open in [`DELIVERABLES.md`](DELIVERABLES.md) (milestone 1). Whether LL2 exposes `net` history (e.g. via `updates`) is **TBD**.
+
+### 3.4 Licensing
+
+The API page states no license, terms or attribution requirement. **TBD: confirm with a PM** before publishing results (see the checklist at the top of this file).
 
 ### 3.5 If a data point is missing
 
-Follow the [missing-data policy](#2-missing-data-policy): keep `null`. Specific cases to expect:
+Follow the [missing-data policy](#2-missing-data-policy). Cases to expect:
 
-- `success = null` on upcoming launches: these have no label.
-- `rocket`, `launchpad`, `window`, `details` can be `null`.
-- Core and fairing booleans can be `null` (for example no landing attempted).
-- `date_precision` coarser than `hour`: the time of day is not reliable for matching weather.
+- `status` for upcoming launches has no outcome yet: these have no label and are excluded from training.
+- `failreason` uses `""` rather than `null` for "none". Treat it as "no failure reason", not as a missing value.
+- `probability`, `weather_concerns`, `net_precision` and the rocket capacity/size numbers can be `null`. Numbers among these are flagged per the policy.
+- `mission` and `pad` fields may be sparse for old launches: **TBD**, check against a few pre-1990 records.
 
 ---
 
@@ -109,14 +108,14 @@ Follow the [missing-data policy](#2-missing-data-policy): keep `null`. Specific 
 
 | Parameter | Required | Value we use | Notes |
 |---|---|---|---|
-| `latitude`, `longitude` | yes | launch site coordinates (WGS84) | Site coordinates come from the SpaceX launchpads dataset (**TBD**) |
+| `latitude`, `longitude` | yes | launch site coordinates (WGS84) | Site coordinates come from `pad.latitude` / `pad.longitude` in LL2 ([§3.3](#33-launch-object-fields)) |
 | `start_date`, `end_date` | yes | `yyyy-mm-dd` | |
 | `hourly` | no | comma-separated variable list | No default. Daily aggregates also available via `daily` (requires `timezone`) |
 | `temperature_unit` | no | `celsius` (default) | |
 | `wind_speed_unit` | no | **`kn`** (default is `kmh`) | **Must be set explicitly**, see [§5](#5-unit-conversions) |
 | `precipitation_unit` | no | `mm` (default) | |
 | `timeformat` | no | `iso8601` (default) | |
-| `timezone` | no | `GMT` (default) | Keep UTC so it matches `date_utc` |
+| `timezone` | no | `GMT` (default) | Keep UTC so it matches `net` |
 
 Example (Cape Canaveral area, tested):
 
@@ -185,7 +184,7 @@ Limits apply per IP and per application. Shared cloud hosts (Vercel, Netlify, Re
 
 ### 4.7 If a data point is missing
 
-Follow the [missing-data policy](#2-missing-data-policy): keep `null`. **How Open-Meteo marks a missing hourly value is not stated in its docs: TBD.** JSON `null` is expected; confirm by checking a response for dates near the 5-day lag and treat any array element that is `null` as missing. Also expect gaps when a launch date is too recent or the launch time is imprecise (`date_precision`).
+Follow the [missing-data policy](#2-missing-data-policy): missing numbers stay `null` and are flagged. **How Open-Meteo marks a missing hourly value is not stated in its docs: TBD.** JSON `null` is expected; confirm by checking a response for dates near the 5-day lag and treat any array element that is `null` as missing. Also expect gaps when a launch date is too recent or the launch time is imprecise (`net_precision`).
 
 ---
 
@@ -201,7 +200,7 @@ Follow the [missing-data policy](#2-missing-data-policy): keep `null`. **How Ope
 | Pressure (`pressure_msl`, `surface_pressure`) | hPa | Pa | × 100 |
 | Precipitation | mm | m (if needed) | ÷ 1000 |
 | Wind direction | degrees | radians (if needed) | × π / 180 |
-| Time (`date_unix`) | Unix seconds (assumed) | datetime (UTC) | `pd.to_datetime(x, unit="s", utc=True)` |
+| Time (`net`, `window_*`) | ISO 8601 string (UTC) | datetime (UTC) | `pd.to_datetime(x, utc=True)` |
 | Relative humidity, cloud cover | % | fraction (if needed) | ÷ 100 |
 
 Knots were chosen as the weather wind unit (the issue lists knots as an example unit). The Open-Meteo default is km/h, so forgetting `wind_speed_unit=kn` silently yields the wrong unit.
@@ -221,8 +220,8 @@ data/
 
 | Folder | Holds | Rules |
 |---|---|---|
-| `data/raw/` | Unmodified API responses (e.g. the SpaceX launches JSON, Open-Meteo hourly JSON), saved straight from the fetcher | **Immutable.** Never edit by hand; re-fetch instead. Units are source units (knots, °C, hPa). |
-| `data/interim/` | Intermediate outputs: unit conversions ([§5](#5-unit-conversions)), type fixes, SpaceX launches joined to weather by launchpad coordinates and time | Reproducible from `raw/` by a tracked script. Safe to delete and regenerate. |
+| `data/raw/` | Unmodified API responses (e.g. the LL2 launches JSON pages, Open-Meteo hourly JSON), saved straight from the fetcher | **Immutable.** Never edit by hand; re-fetch instead. Units are source units (knots, °C, hPa). |
+| `data/interim/` | Intermediate outputs: unit conversions ([§5](#5-unit-conversions)), type fixes, LL2 launches joined to weather by pad coordinates and time | Reproducible from `raw/` by a tracked script. Safe to delete and regenerate. |
 | `data/processed/` | Final feature tables for the XGBoost models and the dashboard | Reproducible from `interim/`. This is what training and the app read. |
 
 Flow: `raw/` → `interim/` → `processed/`. Data only moves forward, and each step is a tracked script or notebook so any teammate can rebuild every folder from scratch.
