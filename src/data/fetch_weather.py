@@ -1,10 +1,12 @@
 
+import truststore
+truststore.inject_into_ssl()
+
 import csv
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
-
 
 BASE_URL = "https://archive-api.open-meteo.com/v1/archive"
 
