@@ -9,7 +9,7 @@ import requests
 BASE_URL = "https://archive-api.open-meteo.com/v1/archive"
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-INPUT_FILE = PROJECT_ROOT / "data" / "raw" / "test_launches.csv"
+INPUT_FILE = PROJECT_ROOT / "data" / "raw" / "spacex_launches.csv"
 OUTPUT_FILE = PROJECT_ROOT / "data" / "raw" / "historical_weather.csv"
 
 WEATHER_VARIABLES = [
@@ -17,7 +17,6 @@ WEATHER_VARIABLES = [
     "wind_speed_10m",
     "precipitation",
     "cloud_cover",
-    "wind_speed_10m",
 ]
 
 
@@ -64,7 +63,7 @@ def fetch_weather(latitude, longitude, launch_time):
             if values is not None and position < len(values)
             else None
         )
-
+    result["high_altitude_wind_assumed"] = result["wind_speed_10m"] * 1.5
     return result
 
 
@@ -78,11 +77,11 @@ def main():
             launch_id = launch["launch_id"]
 
             try:
-                latitude = float(launch["latitude"])
-                longitude = float(launch["longitude"])
+                latitude = float(launch["launchpad_latitude"])
+                longitude = float(launch["launchpad_longitude"])
 
                 launch_time = datetime.fromisoformat(
-                    launch["launch_time"].replace("Z", "+00:00")
+                    launch["launch_timestamp_utc"].replace("Z", "+00:00")
                 ).astimezone(timezone.utc)
 
                 weather = fetch_weather(
@@ -117,6 +116,7 @@ def main():
         "longitude",
         "weather_time",
         *WEATHER_VARIABLES,
+        "high_altitude_wind_assumed",
     ]
 
     with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as file:
