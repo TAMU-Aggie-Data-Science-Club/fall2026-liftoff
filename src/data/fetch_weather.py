@@ -63,7 +63,7 @@ def fetch_weather(latitude, longitude, launch_time):
             if values is not None and position < len(values)
             else None
         )
-    result["high_altitude_wind_assumed"] = result["wind_speed_10m"] * 1.5
+    result["high_altitude_wind_assumed"] = result["wind_speed_10m"]
     return result
 
 
@@ -74,9 +74,10 @@ def main():
         reader = csv.DictReader(file)
 
         for launch in reader:
-            launch_id = launch["launch_id"]
+            
 
             try:
+                launch_id = launch["launch_id"]
                 latitude = float(launch["launchpad_latitude"])
                 longitude = float(launch["launchpad_longitude"])
 
