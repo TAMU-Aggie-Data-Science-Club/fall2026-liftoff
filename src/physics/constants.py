@@ -7,7 +7,7 @@ Physical constants and reference coordinate frame for Liftoff trajectory simulat
 
 x: is how far rocket has traveled accross the ground from the launchpad, in meters
 
-h: is the height above sea levevl, in meters (up is positive)
+h: is the height above sea level, in meters (up is positive)
 
 SI units used, angles are in RADIANS
 """
@@ -17,6 +17,10 @@ EARTH_RADIUS_M = 6_371_000.0
 
 # Standard gravitational acceleration at Earth's surface [m/s^2]
 G0 = 9.80665
+
+# Static pressure at sea level, standard atmosphere [Pa]
+# Used for altitude-dependent thrust: A_e = (T_vac - T_SL) / P0
+P0 = 101_325.0
 
 # Air density at sea level, standard atmosphere [kg/m^3]
 RHO0 = 1.225
