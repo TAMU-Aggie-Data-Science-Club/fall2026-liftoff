@@ -10,7 +10,7 @@ Look-up reference for the data Liftoff uses: where it comes from, what the field
 4. [Open-Meteo Historical Weather API](#4-open-meteo-historical-weather-api)
 5. [Unit conversions](#5-unit-conversions)
 6. [Storage layout (`data/`)](#6-storage-layout-data)
-7. [EDA report: cleaned SpaceX launch table](#7-eda-report-cleaned-spacex-launch-table)
+7. [EDA report: SpaceX launch feature table](#7-eda-report-spacex-launch-feature-table)
 
 > Status: only Launch Library 2 and Open-Meteo are documented so far. The earlier SpaceX community API was dropped (archived and unreachable). NASA Space Shuttle data and CelesTrak / Space-Track TLEs (listed in [`DELIVERABLES.md`](DELIVERABLES.md)) will be added in later issues.
 
@@ -233,11 +233,11 @@ File naming inside these folders is not yet decided: **TBD.**
 
 ---
 
-## 7. EDA report: cleaned SpaceX launch table
+## 7. EDA report: SpaceX launch feature table
 
-Produced by `python src/data/eda.py` (checked 2026-10-27). It prints every table below and writes nothing to disk. SpaceX launches only (LL2 `lsp__id=121`), `net` from 2006-03-24 to 2026-10-23.
+Produced by `python src/data/eda.py` (checked 2026-10-27). It prints every table below and writes nothing to disk. SpaceX launches only (LL2 `lsp__id=121`), `net` from 2006-03-24 to 2026-10-27.
 
-> **Dependency:** the cleaned table is written by `src/data/clean_data.py`, which is in an open pull request (`data/clean-pipeline`) and not yet on `main`. Numbers below were produced with that script's output. Engineered features and the final dataset merger are **not built yet**: the columns in §7.2 are the only processed features that exist, and anything engineered will be added later.
+> **Dependency:** the input, `data/processed/ml_features.csv`, is written by `src/data/build_features.py`, which is in an open pull request (`data/feature-engineering`, PR #31) and not yet on `main`. Numbers below were produced from that script's output. A separate cleaning script (`data/clean-pipeline`, PR #29) writes a different table; see [§7.6](#76-discrepancy-between-the-two-processed-tables).
 
 ### 7.1 Pipeline schema
 
@@ -245,50 +245,53 @@ Produced by `python src/data/eda.py` (checked 2026-10-27). It prints every table
 LL2 API          --fetch_spacex.py-->  data/raw/spacex_launches.csv      (742 rows, 7 columns)
 Open-Meteo API   --fetch_weather.py--> data/raw/historical_weather.csv   (741 rows, 10 columns)
                           |
-                    clean_data.py: inner join on launch_id, parse types, wind km/h -> m/s,
-                    rename columns with units, drop rows missing a required value
+                    build_features.py: left join on launch_id (one-to-one), check that
+                    time and coordinates agree, add wind_speed_ratio and payload_ratio
                           v
-                 data/processed/cleaned_launches.csv                     (741 rows, 13 columns)
+                 data/processed/ml_features.csv                          (742 rows, 18 columns)
 ```
 
-Each launch has one weather record: the hourly value closest to `net`, at the pad coordinates. File names are the ones the scripts use today ([§6](#6-storage-layout-data) still lists naming as TBD).
+Each launch has at most one weather record: the hourly value closest to `net`, at the pad coordinates. Units are source units (see [§7.2](#72-feature-table-columns)). File names are the ones the scripts use today ([§6](#6-storage-layout-data) still lists naming as TBD).
 
-### 7.2 Cleaned table columns
+### 7.2 Feature table columns
 
 | Column | Type | Unit / format | Notes |
 |---|---|---|---|
 | `launch_id` | string (UUID) | | LL2 `id`. Join key |
 | `rocket_type` | string | | LL2 `rocket.configuration.name` (e.g. `Falcon 9`) |
-| `payload_mass_kg` | float | kg | Sum of payload masses. Missing for 98.7% of launches (see §7.4) |
+| `payload_mass_kg` | float | kg | Sum of payload masses. Missing for 98.7% of launches (see [§7.4](#74-missing-values)) |
 | `launchpad_latitude`, `launchpad_longitude` | float | degrees, WGS84 | LL2 `pad`. 7 distinct pad coordinates |
-| `launch_timestamp_utc` | datetime | UTC | LL2 `net` (latest value, not the original schedule) |
+| `launch_timestamp_utc` | string | ISO 8601, UTC | LL2 `net` (latest value, not the original schedule) |
 | `mission_success` | boolean | | **Target.** `True` = LL2 status 3. `False` = status 4 (failure) or 7 (partial failure). Anything else is null in the fetcher |
-| `weather_time` | datetime | UTC | Hourly weather record used |
-| `temperature_2m_c` | float | °C | Air temperature at 2 m |
-| `wind_speed_10m_ms` | float | m/s | Converted from km/h (see [§5](#5-unit-conversions)) |
-| `precipitation_mm` | float | mm | Over the preceding hour |
-| `cloud_cover_pct` | integer | % | |
-| `high_altitude_wind_assumed_ms` | float | m/s | **Not a measurement.** The fetcher copies `wind_speed_10m`, so it is identical to `wind_speed_10m_ms` on every row. Treat it as a placeholder, not an independent feature |
+| `launch_time`, `latitude`, `longitude` | string / float | UTC / degrees | Copies of the launch time and pad coordinates, repeated by the weather file. Verified equal to the launch columns by the builder. Not used in the analysis |
+| `weather_time` | string | ISO 8601, UTC | Hourly weather record used |
+| `temperature_2m` | float | °C | Air temperature at 2 m |
+| `wind_speed_10m` | float | **km/h** | Not converted. See [§5](#5-unit-conversions) |
+| `precipitation` | float | mm | Over the preceding hour |
+| `cloud_cover` | float | % | |
+| `high_altitude_wind_assumed` | float | **km/h** | **Not a measurement.** The fetcher copies `wind_speed_10m`, so it is identical on every row. Placeholder until a high-altitude wind source is added |
+| `wind_speed_ratio` | float | ratio | `high_altitude_wind_assumed / wind_speed_10m`. **Equals 1 on every row with weather**, because of the placeholder above. Carries no information yet |
+| `payload_ratio` | float | ratio | `payload_mass_kg / max_payload_capacity_kg`. **Empty on every row**, because no rocket capacity column exists yet. Placeholder |
 
-### 7.3 Summary statistics (cleaned table, 741 rows)
+### 7.3 Summary statistics (feature table, 742 rows)
 
-Outcome: **726 successes, 15 failures** (2.0%). Every result below rests on 15 failures.
+Outcome: **727 successes, 15 failures** (2.0%). Every result below rests on 15 failures.
 
 | Column | n | Mean | Std | Min | Median | Max |
 |---|---|---|---|---|---|---|
 | `payload_mass_kg` | 10 | 2779.4 | 2031.8 | 1000.0 | 1900.0 | 6400.0 |
-| `launchpad_latitude` | 741 | 30.292 | 3.396 | 9.048 | 28.562 | 34.632 |
-| `launchpad_longitude` | 741 | -92.171 | 28.315 | -120.611 | -80.604 | 167.743 |
-| `temperature_2m_c` | 741 | 20.198 | 6.007 | 4.800 | 20.800 | 34.500 |
-| `wind_speed_10m_ms` | 741 | 3.731 | 1.863 | 0.111 | 3.583 | 9.694 |
-| `precipitation_mm` | 741 | 0.068 | 0.506 | 0.000 | 0.000 | 8.100 |
-| `cloud_cover_pct` | 741 | 50.211 | 40.800 | 0 | 45 | 100 |
+| `launchpad_latitude` | 742 | 30.298 | 3.397 | 9.048 | 28.562 | 34.632 |
+| `launchpad_longitude` | 742 | -92.210 | 28.315 | -120.611 | -80.604 | 167.743 |
+| `temperature_2m` (°C) | 741 | 20.198 | 6.007 | 4.800 | 20.800 | 34.500 |
+| `wind_speed_10m` (km/h) | 741 | 13.432 | 6.706 | 0.400 | 12.900 | 34.900 |
+| `precipitation` (mm) | 741 | 0.068 | 0.506 | 0.000 | 0.000 | 8.100 |
+| `cloud_cover` (%) | 741 | 50.211 | 40.800 | 0 | 45 | 100 |
 
 Success rate by rocket type:
 
 | `rocket_type` | Launches | Failures | Success rate |
 |---|---|---|---|
-| Falcon 9 | 699 | 4 | 0.994 |
+| Falcon 9 | 700 | 4 | 0.994 |
 | Starship | 14 | 5 | 0.643 |
 | Falcon Heavy | 14 | 0 | 1.000 |
 | Starship Prototype | 9 | 3 | 0.667 |
@@ -296,38 +299,57 @@ Success rate by rocket type:
 
 ### 7.4 Missing values
 
-| Where | Finding |
-|---|---|
-| Raw launches (742 rows) | Only `payload_mass_kg` has gaps: **732 missing (98.7%)**, 10 present. Every other column is complete. |
-| Raw weather (741 rows) | No missing values in any column. |
-| Launch with no weather | **1 of 742**: `e2886a96-5ce9-4f45-872f-4e25a00be837` (Falcon 9, `net` 2026-10-27T07:25:51Z). It is inside the ~5-day ERA5 lag in [§4.5](#45-data-availability), so no weather exists yet. It is lost in the join. |
-| Cleaned table (741 rows) | 1 row fewer than raw launches, entirely that one launch. The cleaner dropped no further rows. |
+| Column(s) | Missing | Cause |
+|---|---|---|
+| `payload_mass_kg` | **732 of 742 (98.7%)** | LL2 lists a payload mass for only 10 launches |
+| `payload_ratio` | **742 of 742 (100%)** | Placeholder: needs a rocket capacity column that does not exist yet |
+| `launch_time`, `latitude`, `longitude`, `weather_time`, `temperature_2m`, `wind_speed_10m`, `precipitation`, `cloud_cover`, `high_altitude_wind_assumed`, `wind_speed_ratio` | **1 of 742 (0.1%)**, the same launch every time | `e2886a96-5ce9-4f45-872f-4e25a00be837` (Falcon 9, `net` 2026-10-27T07:25:51Z) has no weather record. It is inside the ~5-day ERA5 lag in [§4.5](#45-data-availability) |
+| All other columns | 0 | |
 
-The cleaner reports "kept 741 of 741" because it counts rows after the join, so the missing-weather launch does not show up in its message.
-
-> **For a PM:** `clean_data.py` joins with an inner merge and drops rows missing a required value. That conflicts with the interim rule in [§2](#2-missing-data-policy) ("do not drop rows"). It lost one row here, but a launch with a missing weather record would be removed rather than flagged. Not changed by this report.
+The left join keeps the launch with no weather and leaves its weather columns empty, as the [§2](#2-missing-data-policy) interim rule asks (do not drop rows).
 
 ### 7.5 Correlation with launch outcome
 
-Pearson correlation between each numeric feature and `mission_success` coded 0/1 (point-biserial). Computed on launches that have a value for the feature.
+Pearson correlation between each numeric feature and `mission_success` coded 0/1 (point-biserial). Computed on launches that have a value for the feature. The duplicate `latitude` and `longitude` columns are left out.
 
 | Feature | n | Failures in n | Pearson r |
 |---|---|---|---|
-| `launchpad_latitude` | 741 | 15 | 0.279 |
-| `launchpad_longitude` | 741 | 15 | -0.253 |
-| `wind_speed_10m_ms` | 741 | 15 | -0.097 |
-| `high_altitude_wind_assumed_ms` | 741 | 15 | -0.097 (identical copy of the above) |
-| `temperature_2m_c` | 741 | 15 | -0.068 |
-| `precipitation_mm` | 741 | 15 | 0.019 |
-| `cloud_cover_pct` | 741 | 15 | 0.012 |
+| `launchpad_latitude` | 742 | 15 | 0.279 |
+| `launchpad_longitude` | 742 | 15 | -0.253 |
+| `wind_speed_10m` | 741 | 15 | -0.097 |
+| `high_altitude_wind_assumed` | 741 | 15 | -0.097 (identical copy of the above) |
+| `temperature_2m` | 741 | 15 | -0.068 |
+| `precipitation` | 741 | 15 | 0.019 |
+| `cloud_cover` | 741 | 15 | 0.012 |
 | `payload_mass_kg` | 10 | 0 | undefined (no failures among the 10 launches with a value) |
+| `wind_speed_ratio` | 741 | 15 | undefined (constant 1) |
+| `payload_ratio` | 0 | 0 | undefined (no values) |
 
 How to read this:
 
 - **Weather is weakly related to the outcome.** All four weather features have |r| below 0.10. With 15 failures, that is within what chance could produce, so these numbers are not evidence either way.
 - **Latitude and longitude are proxies for the rocket program, not geography.** The largest values (|r| 0.25 to 0.28) coincide with Falcon 1 flying from Kwajalein (9.05, 167.74; 3 failures in 5 launches) and Starship and its prototypes flying from the Texas pad near 26.0, -97.2 (8 failures in 23 launches). Do not read them as "pad location causes failure".
-- **Payload mass cannot be analysed** with 10 values and no failures among them.
+- **Payload mass and both ratio columns cannot be analysed** yet. Re-run the script once a high-altitude wind source and a rocket capacity column are added.
 
-### 7.6 Delay analysis: not done
+### 7.6 Discrepancy between the two processed tables
+
+Two scripts in open pull requests both write to `data/processed/` and produce different tables from the same raw files. This report uses the feature builder's table.
+
+| | Feature builder (`build_features.py`, PR #31): **used here** | Cleaner (`clean_data.py`, PR #29) |
+|---|---|---|
+| Output file | `ml_features.csv` | `cleaned_launches.csv` |
+| Rows | 742 (left join keeps the launch with no weather) | 741 (inner join; that launch is lost, and the script's "kept 741 of 741" message does not show it) |
+| Wind units | km/h, unconverted | m/s (÷ 3.6) |
+| Column names | Source names (`wind_speed_10m`) | Unit suffixes (`wind_speed_10m_ms`, `temperature_2m_c`) |
+| Extra columns | `wind_speed_ratio`, `payload_ratio`, duplicate `launch_time` / `latitude` / `longitude` | None |
+| Dropped rows | None | Drops any row missing a required value, which conflicts with the [§2](#2-missing-data-policy) "do not drop rows" rule |
+
+Neither script reads the other's output. Correlation values match on either table (a change of unit does not alter Pearson r).
+
+### 7.7 Delay analysis: not done
 
 The issue asks for correlations against launch delays. **LL2 has no delay field** and the baseline for computing one is not defined ([§3.3](#33-launch-object-fields), milestone 1 in [`DELIVERABLES.md`](DELIVERABLES.md)), so this report uses the mission outcome instead. Delay correlations are pending a PM's definition of delay.
+
+### 7.8 Still to document
+
+Documentation for the physics data has not been added to this file yet.
