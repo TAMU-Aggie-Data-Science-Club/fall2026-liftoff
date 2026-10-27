@@ -1,37 +1,47 @@
 # placeholder for streamlit connection
 import streamlit as st
 
-col1, col2, col3 = st.columns(3)
+from components.charts import (
+    create_3d_trajectory_figure,
+    create_altitude_distance_figure,
+    create_speed_time_figure,
+    generate_mock_trajectory,
+)
 
-with col1:
-    with st.sidebar:
-        st.subheader("Rocket Selection: ")
-        #made placeholder selections
-        rocket = st.selectbox("Select Rocket: ", ["Rocket a" , "Rocket b", "Rocket c"])
+st.set_page_config(page_title="Liftoff Trajectory Dashboard", layout="wide")
+st.title("Rocket Trajectory")
 
-        st.subheader("Payload Mass Slider: ")
-        #made a slider for payload mass, min and max value can be edited later
-        mass = st.slider("Payload Mass: ", min_value = 10, max_value = 1000)
+with st.sidebar:
+    st.subheader("Rocket Selection")
+    rocket = st.selectbox("Select Rocket", ["Rocket a", "Rocket b", "Rocket c"])
+    mass = st.slider("Payload Mass", min_value=10, max_value=1000)
+    weather = st.selectbox(
+        "Weather Condition", ["Option a", "Option b", "Option c"]
+    )
+    fuel = st.slider("Fuel Amount", min_value=0, max_value=100)
 
-        #made placeholder selections for weather
-        st.subheader("Weather Condition Overrides: ")
-        weather = st.selectbox("Select Weather Condition", ["option a", "option b", "option c"])
+trajectory = generate_mock_trajectory()
+altitude_column, speed_column = st.columns(2, gap="large")
 
-        #not sure if this is something that would be added but I can change it
-        st.subheader("Fuel")
-        fuel = st.slider("Fuel Amount: ", min_value = 0, max_value = 100)
+with altitude_column:
+    st.plotly_chart(
+        create_altitude_distance_figure(trajectory),
+        width="stretch",
+        config={"responsive": True},
+        key="altitude-distance-chart",
+    )
 
-with col2:
-    with st.container(border = True):
-        #this is where the graphs will be placed for now
-        st.metric("Placeholder", 0)
-        placeholder1 = st.empty()
+with speed_column:
+    st.plotly_chart(
+        create_speed_time_figure(trajectory),
+        width="stretch",
+        config={"responsive": True},
+        key="speed-time-chart",
+    )
 
-with col3:
-    with st.container(border = True):
-        #made another placeholder
-        st.metric("Placeholder", 0)
-        placeholder2 = st.empty()
-
-
-
+st.plotly_chart(
+    create_3d_trajectory_figure(trajectory),
+    width="stretch",
+    config={"responsive": True},
+    key="3d-trajectory-chart",
+)
