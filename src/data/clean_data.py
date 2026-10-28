@@ -5,7 +5,7 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LAUNCHES_PATH = REPO_ROOT / "data" / "raw" / "spacex_launches.csv"
 WEATHER_PATH = REPO_ROOT / "data" / "raw" / "historical_weather.csv"
-OUTPUT_PATH = REPO_ROOT / "data" / "processed" / "cleaned_launches.csv"
+OUTPUT_PATH = REPO_ROOT / "data" / "interim" / "cleaned_launches.csv"
 
 KMH_TO_MS = 1 / 3.6
 
