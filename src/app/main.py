@@ -1,26 +1,30 @@
 import streamlit as st
+from components.charts import (
+    create_3d_trajectory_figure,
+    create_altitude_distance_figure,
+    create_speed_time_figure,
+    generate_mock_trajectory,
+)
 
-col1, col2 = st.columns(2)
+st.set_page_config(page_title="Liftoff Trajectory Dashboard", layout="wide")
+st.title("Rocket Trajectory Dashboard")
 
+# --- Sidebar Controls ---
+with st.sidebar.expander("Rocket Configuration", expanded=True):
+    st.subheader("Rocket Selection")
+    rocket = st.selectbox("Select Rocket", ["Falcon 9", "Falcon Heavy", "Starship"])
 
-with st.sidebar.expander("Rocket Configuration"):
-    st.subheader("Rocket Selection: ")
-    #made placeholder selections
-    rocket = st.selectbox("Select Rocket: ", ["Rocket a" , "Rocket b", "Rocket c"])
+    st.subheader("Payload Mass")
+    mass = st.slider("Payload Mass (kg)", min_value=10, max_value=1000)
 
+with st.sidebar.expander("Weather and Environment", expanded=True):
+    st.subheader("Weather Condition Overrides")
+    weather = st.selectbox("Select Weather Condition", ["Clear", "High Winds", "Storm"])
 
-    st.subheader("Payload Mass Slider: ")
-    #made a slider for payload mass, min and max value can be edited later
-    mass = st.slider("Payload Mass (kg): ", min_value = 10, max_value = 1000)
+    st.subheader("Wind Speed")
+    wind_speed = st.number_input("Enter Wind Speed (mph)", min_value=0.0, value=10.0)
 
-with st.sidebar.expander("Weather and Environment"):
-    st.subheader("Weather Condition Overrides: ")
-    weather = st.selectbox("Select Weather Condition:", ["option a", "option b", "option c"])
-
-    #numerical input for wind speed
-    st.subheader("Wind Speed: ")
-    wind_speed = st.number_input("Enter Wind Speed: ")
-
+# Input state dictionary for downstream model consumption
 input_data = {
     "rocket": rocket,
     "mass": mass,
@@ -28,15 +32,29 @@ input_data = {
     "wind": wind_speed,
 }
 
-with col1:
-    with st.container(border = True):
-        #this is where the graphs will be placed for now
-        st.metric("Placeholder", 0)
-        placeholder1 = st.empty()
+# --- Visualizations ---
+trajectory = generate_mock_trajectory()
+altitude_column, speed_column = st.columns(2, gap="large")
 
-with col2:
-    with st.container(border = True):
-        #made another placeholder
-        st.metric("Placeholder", 0)
-        placeholder2 = st.empty()
+with altitude_column:
+    with st.container(border=True):
+        st.plotly_chart(
+            create_altitude_distance_figure(trajectory),
+            use_container_width=True,
+            key="altitude-distance-chart",
+        )
 
+with speed_column:
+    with st.container(border=True):
+        st.plotly_chart(
+            create_speed_time_figure(trajectory),
+            use_container_width=True,
+            key="speed-time-chart",
+        )
+
+with st.container(border=True):
+    st.plotly_chart(
+        create_3d_trajectory_figure(trajectory),
+        use_container_width=True,
+        key="3d-trajectory-chart",
+    )
