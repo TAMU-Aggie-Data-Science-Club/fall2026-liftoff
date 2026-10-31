@@ -19,7 +19,7 @@ Ship two things that work together:
 - **Modeling / ML:** XGBoost (classification for success, regression for delay hours)
 - **Physics:** NumPy-based ODE integration for trajectory (`scipy.integrate.solve_ivp`)
 - **Visualization:** Plotly, Matplotlib, Streamlit
-- **Data sources:** SpaceX API, NASA Open Data, public launch data
+- **Data sources:** Launch Library 2 API, NASA Open Data, Open-Meteo weather
 
 See [`DATA.md`](DATA.md) for concrete data sources and how to access them.
 
@@ -31,7 +31,7 @@ See [`DATA.md`](DATA.md) for concrete data sources and how to access them.
 
 ## Suggested scope (v1)
 
-Cover **two programs**: SpaceX (rich API, modern) plus one historical NASA program (e.g., Space Shuttle) from NASA Open Data.
+Cover **two programs**: SpaceX (modern, via the Launch Library 2 API) plus one historical NASA program (e.g., Space Shuttle) from NASA Open Data.
 
 Build:
 
