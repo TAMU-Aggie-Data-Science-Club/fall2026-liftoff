@@ -1,4 +1,8 @@
-"""Fetch past SpaceX launches from the Launch Library 2 API and save a local CSV."""
+"""Fetch past SpaceX launches from the Launch Library 2 API and save a local CSV.
+
+Payload mass is not taken from LL2 (it is almost always empty there). It comes
+from GCAT, Jonathan McDowell's General Catalog of Artificial Space Objects.
+"""
 
 from pathlib import Path
 
@@ -6,9 +10,15 @@ import pandas as pd
 import requests
 
 API_URL = "https://ll.thespacedevs.com/2.3.0/launches/previous/"
+GCAT_URL = "https://planet4589.org/space/gcat/tsv/launch/launch.tsv"
 SPACEX_AGENCY_ID = 121
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OUTPUT_PATH = REPO_ROOT / "data" / "raw" / "spacex_launches.csv"
+GCAT_PATH = REPO_ROOT / "data" / "raw" / "gcat_launch.tsv"
+
+# Max gap between an LL2 `net` and the GCAT launch time for the two to be the same launch
+GCAT_MATCH_TOLERANCE = pd.Timedelta(hours=2)
+GCAT_TONNES_TO_KG = 1000
 
 # LL2 launch status ids
 STATUS_SUCCESS = 3
@@ -36,17 +46,54 @@ def fetch_launches() -> list[dict]:
     return launches
 
 
-def payload_mass_kg(launch: dict) -> float | None:
-    payload_flights = (launch.get("rocket") or {}).get("payloads") or []
-    if not payload_flights:
-        return None
-    total = 0.0
-    for flight in payload_flights:
-        mass = (flight.get("payload") or {}).get("mass")
-        if mass is None:
-            return None
-        total += mass * (flight.get("amount") or 1)
-    return total
+def load_gcat_launches() -> pd.DataFrame:
+    # Cached in data/raw/ like the other raw files; delete it to pull a fresh copy.
+    if not GCAT_PATH.exists():
+        response = requests.get(GCAT_URL, timeout=120)
+        response.raise_for_status()
+        GCAT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        GCAT_PATH.write_bytes(response.content)
+    # Line 1 is the column header (starts with "#"), line 2 is "# Updated ..."
+    gcat = pd.read_csv(GCAT_PATH, sep="\t", dtype=str)
+    gcat.columns = [col.lstrip("#") for col in gcat.columns]
+    gcat = gcat.apply(lambda col: col.str.strip())
+    gcat = gcat[~gcat["Launch_Tag"].str.startswith("#")]
+    gcat = gcat[gcat["LV_Type"].str.startswith("Falcon", na=False)]
+    # "2024 Oct 15 1033" has no seconds and some times end in "?" (uncertain)
+    launch_time = (
+        gcat["Launch_Date"]
+        .str.replace("?", "", regex=False)
+        .str.replace(r"\s+", " ", regex=True)
+        .str.replace(r"^(\d{4} \w{3} \d+ \d{4})$", r"\1:00", regex=True)
+    )
+    gcat["launch_time"] = pd.to_datetime(
+        launch_time, format="%Y %b %d %H%M:%S", utc=True, errors="coerce"
+    )
+    # OrbPay is the payload delivered to orbit, in tonnes. "-" means unknown and 0
+    # means nothing reached orbit; both become null rather than a real mass.
+    orbit_payload = pd.to_numeric(gcat["OrbPay"], errors="coerce")
+    gcat["payload_mass_kg"] = orbit_payload.where(orbit_payload > 0) * GCAT_TONNES_TO_KG
+    return gcat.dropna(subset=["launch_time"]).sort_values("launch_time")
+
+
+def add_gcat_payload_mass(launches: pd.DataFrame) -> pd.DataFrame:
+    """Replace payload_mass_kg with GCAT's value for the matching launch (NaN if none)."""
+    gcat = load_gcat_launches()
+    launches = launches.copy()
+    launches["_net"] = pd.to_datetime(launches["launch_timestamp_utc"], utc=True)
+    order = launches.sort_values("_net")
+    matched = pd.merge_asof(
+        order[["_net"]],
+        gcat[["launch_time", "payload_mass_kg"]],
+        left_on="_net",
+        right_on="launch_time",
+        direction="nearest",
+        tolerance=GCAT_MATCH_TOLERANCE,
+    )
+    launches["payload_mass_kg"] = pd.Series(
+        matched["payload_mass_kg"].to_numpy(), index=order.index
+    )
+    return launches.drop(columns="_net")
 
 
 def mission_success(launch: dict) -> bool | None:
@@ -67,7 +114,6 @@ def build_rows(launches: list[dict]) -> list[dict]:
             {
                 "launch_id": launch.get("id"),
                 "rocket_type": rocket_config.get("name"),
-                "payload_mass_kg": payload_mass_kg(launch),
                 "launchpad_latitude": pad.get("latitude"),
                 "launchpad_longitude": pad.get("longitude"),
                 "launch_timestamp_utc": launch.get("net"),
@@ -78,10 +124,12 @@ def build_rows(launches: list[dict]) -> list[dict]:
 
 
 def main() -> None:
-    rows = build_rows(fetch_launches())
+    launches = add_gcat_payload_mass(pd.DataFrame(build_rows(fetch_launches())))
+    # Keep the column order the downstream scripts expect
+    launches.insert(2, "payload_mass_kg", launches.pop("payload_mass_kg"))
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(rows).to_csv(OUTPUT_PATH, index=False)
-    print(f"Wrote {len(rows)} rows to {OUTPUT_PATH}")
+    launches.to_csv(OUTPUT_PATH, index=False)
+    print(f"Wrote {len(launches)} rows to {OUTPUT_PATH}")
 
 
 if __name__ == "__main__":
