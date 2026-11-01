@@ -19,7 +19,7 @@ Ship two things that work together:
 - **Modeling / ML:** XGBoost (classification for success, regression for delay hours)
 - **Physics:** NumPy-based ODE integration for trajectory (`scipy.integrate.solve_ivp`)
 - **Visualization:** Plotly, Matplotlib, Streamlit
-- **Data sources:** Launch Library 2 API, NASA Open Data, Open-Meteo weather
+- **Data sources:** Launch Library 2 API, GCAT (payload mass), NASA Open Data, Open-Meteo weather
 
 See [`DATA.md`](DATA.md) for concrete data sources and how to access them.
 
