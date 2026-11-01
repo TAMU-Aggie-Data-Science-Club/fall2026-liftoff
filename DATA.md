@@ -13,6 +13,7 @@ Look-up reference for the data Liftoff uses: where it comes from, what the field
 7. [EDA report: SpaceX launch feature table](#7-eda-report-spacex-launch-feature-table)
 8. [GCAT payload mass](#8-gcat-payload-mass)
 9. [High-altitude winds (NOAA IGRA2 radiosondes)](#9-high-altitude-winds-noaa-igra2-radiosondes)
+10. [Open questions for the PM](#10-open-questions-for-the-pm)
 
 > Status: only Launch Library 2, Open-Meteo, GCAT (payload mass only) and NOAA IGRA2 (upper-air winds only) are documented so far. The earlier SpaceX community API was dropped (archived and unreachable). NASA Space Shuttle data and CelesTrak / Space-Track TLEs (listed in [`DELIVERABLES.md`](DELIVERABLES.md)) will be added in later issues.
 
@@ -407,6 +408,8 @@ Documentation for the physics data has not been added to this file yet.
 **Cautions:**
 
 - Where LL2 and GCAT both had a value (10 launches), 7 agreed within 10%.
+- **The mass is not LEO-only.** `OrbPay` counts any payload that reaches orbit, whatever the orbit. GCAT's `Category` column, which is filled for all 717 launches with a mass, splits them into 607 in low Earth orbit (LEO 453, Sun-synchronous 94, ISS 60) and 110 in higher or elliptical orbits (GTO 39, super-synchronous transfer 31, elliptical Earth orbit 13, medium Earth orbit 10, other transfer orbits 9, geostationary 5, deep-space 2, Molniya-type 1). A GTO launch carries much less than a LEO one because the rocket spends fuel reaching the higher orbit, so a low `payload_mass_kg` can mean a lighter payload or a farther destination. Falcon 9's LEO maximum is about 18.9 t, which matches the largest value in the table. Whether to separate the two is an open question: [§10](#10-open-questions-for-the-pm).
+- GCAT's `Apogee` column cannot be used for this: it is filled for only 209 of the 717 launches. Use `Category`.
 - GCAT may revise a launch's mass after the fact. Delete the cached `data/raw/gcat_launch.tsv` and re-run the fetcher to pick up updates.
 
 ### 8.1 License and attribution
@@ -457,3 +460,17 @@ IGRA2 is a NOAA NCEI product. Credit it wherever results are shown, for example 
 Also open: four other soundings are flagged with 1 to 4 spike levels each (Cape Kennedy 2020-01-19 and 2023-03-02, Vandenberg 2026-01-25 and 2026-03-26). They have not been examined and some may be real wind shear, so check them before choosing a threshold.
 
 **API limit:** the re-run is held until the PM decides. Open-Meteo's free tier allows 600 calls a minute and under 10,000 a day ([§4.4](#44-rate-limits-free-tier)), so one full run is well inside it. The IGRA2 zips are cached in `data/raw/igra/` and are not downloaded again.
+
+---
+
+## 10. Open questions for the PM
+
+Every item below needs a decision from a PM before it can be closed. Nothing has been changed for items 1 and 2. Re-running `fetch_spacex.py` or `fetch_weather.py` is held for the PM's answer on items 1 and 2, to save API calls.
+
+| # | Question | Where | Choices and cost |
+|---|---|---|---|
+| 1 | What to do about the two corrupted Vandenberg soundings (2024-10-30, 2024-12-05) | [§9.2](#92-open-question-for-the-pm-corrupted-soundings) | Drop the spike levels (suggested), blank those two launches, or leave as is. The first two need a re-run of `fetch_weather.py` |
+| 2 | Should `payload_mass_kg` be limited to low Earth orbit, or should the orbit be kept beside it? | [§8](#8-gcat-payload-mass) | **Leave as is:** 110 of 717 masses are for higher orbits (GTO and others), so mass mixes two kinds of mission. **Add an orbit column** (suggested): keep every launch and add GCAT's `Category` so models can separate them. **Keep LEO only:** drop the 110 higher-orbit masses (set to null, not dropped rows, per [§2](#2-missing-data-policy)). Either change needs a change to `fetch_spacex.py` and a re-run. Use `Category`, not `Apogee` (filled for only 209 of 717) |
+| 3 | Switch `high_altitude_wind_assumed` and `wind_speed_ratio` from the 10 m placeholder to a real upper-air wind, and which one (a fixed height such as 12 km, or `upper_wind_max_kmh`)? | [§7.2](#72-feature-table-columns) | Until decided, `wind_speed_ratio` is 1 on every row and carries no information |
+| 4 | Fix the wind unit in the fetcher (pass `wind_speed_unit=kn`) or change the [§5](#5-unit-conversions) table to km/h? | [§5](#5-unit-conversions) | Already marked TBD there. The new `upper_wind_*` columns are in km/h to match the current surface wind |
+| 5 | Confirm the license and attribution wording for GCAT, NOAA IGRA2 and Open-Meteo | [§1](#1-source-register), [§8.1](#81-license-and-attribution), [§9.1](#91-license-and-attribution), [§4.6](#46-licensing-and-attribution) | Open-Meteo's free tier is non-commercial only. GCAT's CC BY and IGRA2's terms (none found) were read from the sites and are unconfirmed |
