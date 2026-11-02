@@ -28,6 +28,18 @@ RHO0 = 1.225
 # Atmospheric scale height for the exponential model rho(h) = RHO0 * exp(-h / H) [m]
 SCALE_HEIGHT_M = 8_500.0
 
+# Sea-level temperature, standard atmosphere [K]
+T0 = 288.15
+
+# Specific gas constant for dry air [J/(kg K)]
+R_AIR = 287.05287
+
+# Ratio of specific heats for air [-]
+GAMMA_AIR = 1.4
+
+# Earth radius used by US76 to convert geometric -> geopotential altitude [m]
+US76_EARTH_RADIUS_M = 6_356_766.0
+
 # Coordinate system used
 COORDINATE_SYSTEM = "2D Cartesian"
 
