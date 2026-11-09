@@ -9,6 +9,8 @@ API_URL = "https://ll.thespacedevs.com/2.3.0/launches/previous/"
 SPACEX_AGENCY_ID = 121
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OUTPUT_PATH = REPO_ROOT / "data" / "raw" / "spacex_launches.csv"
+# LL2's timestamped notes per launch (e.g. "Now targeting Nov 05 at 02:35 UTC")
+UPDATES_PATH = REPO_ROOT / "data" / "raw" / "spacex_launch_updates.csv"
 
 # LL2 launch status ids
 STATUS_SUCCESS = 3
@@ -77,11 +79,32 @@ def build_rows(launches: list[dict]) -> list[dict]:
     return rows
 
 
+def build_update_rows(launches: list[dict]) -> list[dict]:
+    rows = []
+    for launch in launches:
+        for update in launch.get("updates") or []:
+            rows.append(
+                {
+                    "launch_id": launch.get("id"),
+                    "created_on": update.get("created_on"),
+                    "comment": update.get("comment"),
+                }
+            )
+    return rows
+
+
 def main() -> None:
-    rows = build_rows(fetch_launches())
+    launches = fetch_launches()
+    rows = build_rows(launches)
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows).to_csv(OUTPUT_PATH, index=False)
     print(f"Wrote {len(rows)} rows to {OUTPUT_PATH}")
+
+    update_rows = build_update_rows(launches)
+    pd.DataFrame(update_rows, columns=["launch_id", "created_on", "comment"]).to_csv(
+        UPDATES_PATH, index=False
+    )
+    print(f"Wrote {len(update_rows)} launch notes to {UPDATES_PATH}")
 
 
 if __name__ == "__main__":
