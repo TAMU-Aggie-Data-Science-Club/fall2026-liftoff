@@ -5,6 +5,10 @@ from dataclasses import dataclass
 import numpy as np
 import plotly.graph_objects as go
 
+CHART_BACKGROUND = "rgba(0, 0, 0, 0)"
+CHART_TEXT = "#dce7ff"
+CHART_GRID = "rgba(137, 161, 205, 0.18)"
+
 
 @dataclass(frozen=True)
 class TrajectoryData:
@@ -54,15 +58,21 @@ def create_altitude_distance_figure(trajectory: TrajectoryData) -> go.Figure:
             y=altitude_km,
             mode="lines",
             name="Trajectory",
-            line={"color": "#00a6d6", "width": 3},
+            line={"color": "#37d7ff", "width": 3},
             hovertemplate="Distance: %{x:.1f} km<br>Altitude: %{y:.1f} km<extra></extra>",
         )
     )
     figure.update_layout(
+        template="plotly_dark",
+        paper_bgcolor=CHART_BACKGROUND,
+        plot_bgcolor=CHART_BACKGROUND,
+        font={"color": CHART_TEXT},
         title="Altitude vs. Distance",
         title_x=0.5,
         xaxis_title="Distance from launch site (km)",
         yaxis_title="Altitude (km)",
+        xaxis={"gridcolor": CHART_GRID, "zerolinecolor": CHART_GRID},
+        yaxis={"gridcolor": CHART_GRID, "zerolinecolor": CHART_GRID},
         height=400,
         autosize=True,
         margin={"l": 55, "r": 20, "t": 65, "b": 55},
@@ -78,15 +88,21 @@ def create_speed_time_figure(trajectory: TrajectoryData) -> go.Figure:
             y=trajectory.speed_mps,
             mode="lines",
             name="Speed",
-            line={"color": "#f28e2b", "width": 3},
+            line={"color": "#ffb86b", "width": 3},
             hovertemplate="Time: %{x:.1f} s<br>Speed: %{y:.0f} m/s<extra></extra>",
         )
     )
     figure.update_layout(
+        template="plotly_dark",
+        paper_bgcolor=CHART_BACKGROUND,
+        plot_bgcolor=CHART_BACKGROUND,
+        font={"color": CHART_TEXT},
         title="Speed vs. Time",
         title_x=0.5,
         xaxis_title="Time (s)",
         yaxis_title="Speed (m/s)",
+        xaxis={"gridcolor": CHART_GRID, "zerolinecolor": CHART_GRID},
+        yaxis={"gridcolor": CHART_GRID, "zerolinecolor": CHART_GRID},
         height=400,
         autosize=True,
         margin={"l": 55, "r": 20, "t": 65, "b": 55},
@@ -114,12 +130,19 @@ def create_3d_trajectory_figure(trajectory: TrajectoryData) -> go.Figure:
         )
     )
     figure.update_layout(
+        template="plotly_dark",
+        paper_bgcolor=CHART_BACKGROUND,
+        plot_bgcolor=CHART_BACKGROUND,
+        font={"color": CHART_TEXT},
         title="3D Flight Trajectory",
         title_x=0.5,
         scene={
             "xaxis_title": "Downrange (km)",
             "yaxis_title": "Crossrange (km)",
             "zaxis_title": "Altitude (km)",
+            "xaxis": {"backgroundcolor": CHART_BACKGROUND, "gridcolor": CHART_GRID},
+            "yaxis": {"backgroundcolor": CHART_BACKGROUND, "gridcolor": CHART_GRID},
+            "zaxis": {"backgroundcolor": CHART_BACKGROUND, "gridcolor": CHART_GRID},
             "aspectmode": "data",
         },
         height=600,
