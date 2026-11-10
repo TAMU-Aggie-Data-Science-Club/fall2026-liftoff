@@ -52,6 +52,7 @@ See [`DELIVERABLES.md`](DELIVERABLES.md) for the suggested deliverable breakdown
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | **Start here.** How the team runs the project on GitHub — PM vs. member roles, the issue → PR → `main` flow, branching, worktrees, reviews. |
 | [`DELIVERABLES.md`](DELIVERABLES.md) | Suggested deliverables and rough timeline. A living plan, not a contract. |
 | [`DATA.md`](DATA.md) | Suggested data sources, how to access them, and the source register. |
+| [`MODELING.md`](MODELING.md) | Launch success / delay models — labels, features, hyperparameters, validation, and results. |
 | [`data/`](data/) | Local working folder for datasets. **Git-ignored** — data is never committed. |
 | [`AGENTS.md`](AGENTS.md) | Machine-facing workflow rules for AI coding agents. |
 | [`CODEOWNERS`](CODEOWNERS) | **Team roster + review policy.** PMs, members, and the code-owner rule for PRs into `main`. |
