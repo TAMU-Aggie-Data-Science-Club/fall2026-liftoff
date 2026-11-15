@@ -5,6 +5,10 @@
 # is tracked and is intentionally NOT inside data/.
 data/*
 !data/.gitkeep
+# Exception (approved by PM): small public-domain benchmark profiles for testing
+# the trajectory simulator. Space-Track TLEs stay local (redistribution restricted).
+!data/reference/
+data/reference/tle/
 
 # --- Agent / private working notes ----------------------------------------
 # Scratch planning files (see AGENTS.md) — never part of a PR.
