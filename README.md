@@ -19,7 +19,7 @@ Ship two things that work together:
 - **Modeling / ML:** XGBoost (classification for success, regression for delay hours)
 - **Physics:** NumPy-based ODE integration for trajectory (`scipy.integrate.solve_ivp`)
 - **Visualization:** Plotly, Matplotlib, Streamlit
-- **Data sources:** SpaceX API, NASA Open Data, public launch data
+- **Data sources:** Launch Library 2 API, GCAT (payload mass), NASA Open Data, Open-Meteo weather
 
 See [`DATA.md`](DATA.md) for concrete data sources and how to access them.
 
@@ -31,7 +31,7 @@ See [`DATA.md`](DATA.md) for concrete data sources and how to access them.
 
 ## Suggested scope (v1)
 
-Cover **two programs**: SpaceX (rich API, modern) plus one historical NASA program (e.g., Space Shuttle) from NASA Open Data.
+Cover **two programs**: SpaceX (modern, via the Launch Library 2 API) plus one historical NASA program (e.g., Space Shuttle) from NASA Open Data.
 
 Build:
 
@@ -52,6 +52,7 @@ See [`DELIVERABLES.md`](DELIVERABLES.md) for the suggested deliverable breakdown
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | **Start here.** How the team runs the project on GitHub — PM vs. member roles, the issue → PR → `main` flow, branching, worktrees, reviews. |
 | [`DELIVERABLES.md`](DELIVERABLES.md) | Suggested deliverables and rough timeline. A living plan, not a contract. |
 | [`DATA.md`](DATA.md) | Suggested data sources, how to access them, and the source register. |
+| [`MODELING.md`](MODELING.md) | Launch success / delay models — labels, features, hyperparameters, validation, and results. |
 | [`data/`](data/) | Local working folder for datasets. **Git-ignored** — data is never committed. |
 | [`AGENTS.md`](AGENTS.md) | Machine-facing workflow rules for AI coding agents. |
 | [`CODEOWNERS`](CODEOWNERS) | **Team roster + review policy.** PMs, members, and the code-owner rule for PRs into `main`. |

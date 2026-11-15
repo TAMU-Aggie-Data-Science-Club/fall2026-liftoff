@@ -16,7 +16,7 @@ We will have three subteams of 2-3 members. Members can express preferences, sug
 
 | Subteam | Semester responsibilities |
 | --- | --- |
-| Data Engineering & ML | Ingestion pipelines for SpaceX and NASA APIs, feature engineering, XGBoost training for classification and delay regression, cross-validation, and error analysis. |
+| Data Engineering & ML | Ingestion pipelines for Launch Library 2 and NASA APIs, feature engineering, XGBoost training for classification and delay regression, cross-validation, and error analysis. |
 | Physics & Trajectory Modeling | Differential equations setup using scipy.integrate.solve_ivp, 2D ballistic and gravity-turn flight simulation, trajectory coordinate exports, and numerical sanity checks against telemetry |
 | Dashboard & Integration | Streamlit application layout, Plotly visual components, mission-control styling, user parameter controls, and end-to-end integration of ML model predictions with physics plots. |
 
@@ -44,7 +44,7 @@ They will take place virtually in the Project Sync voice channel on the Liftoff 
 
 We will begin with:
 
-r/SpaceX REST API - provides structured data on modern commercial spaceflight, allowing us to train models to predict launch success and delay hours
+Launch Library 2 API - provides structured data on launches from all providers (modern and historical), allowing us to train models to predict launch success and delay hours
 
 NASA Space Shuttle Mission Data (NASA Open Data) - expands the dataset to predict launches outside of SpaceX flights, allows the user to benchmark modern flights against historical data
 
@@ -63,7 +63,7 @@ Read through the responsibilities of each subteam and DM a.bisaria on Discord wi
 | # | Deliverable | Description | Owner (role) | Target |
 |---|-------------|-------------|--------------|--------|
 | 1 | Project scoping | Pick programs to cover (SpaceX + one historical). Define "success" canonically. Define what a "delay" means. | PM | Week 1 |
-| 2 | Data ingestion | Reproducible fetchers for SpaceX API + NASA Open Data + weather. Documented in [`DATA.md`](DATA.md). | Members | Weeks 1–2 |
+| 2 | Data ingestion | Reproducible fetchers for Launch Library 2 API + NASA Open Data + weather. LL2 replaced the SpaceX community API, which was archived and unreachable. Documented in [`DATA.md`](DATA.md). | Members | Weeks 1–2 |
 | 3 | EDA | Distribution of outcomes, delays, launch cadence over time, payload mass distributions. | Members | Week 2 |
 | 4 | Feature engineering | Rocket family, payload mass, site, weather at launch time, days since previous launch of the same core. | Members | Weeks 3–4 |
 | 5 | Outcome + delay models | XGBoost classifier for success; XGBoost regressor for delay hours. Time-based CV. | Members | Weeks 4–5 |
