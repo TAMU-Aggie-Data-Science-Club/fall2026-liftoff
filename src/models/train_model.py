@@ -36,6 +36,13 @@ MODELS = {
 DELAY_BASELINE_DAYS = 7
 DELAY_THRESHOLD_HOURS = 24
 
+# Launches left out of training (they stay in the data files).
+EXCLUDED_LAUNCHES = {
+    # Amos-6: exploded on the pad during a pre-launch test, so it never launched.
+    # Left out as an outlier (PM decision, 2026-11-08).
+    "3622669f-6e06-467a-86f3-47b56b1114c1",
+}
+
 HOLDOUT_FRACTION = 0.2  # newest launches held out for a quick check
 PARAMS = {
     "objective": "binary:logistic",
@@ -109,6 +116,7 @@ def delay_labels(launches: pd.DataFrame) -> pd.Series:
 
 def load_launches() -> pd.DataFrame:
     df = pd.read_csv(FEATURES_PATH)
+    df = df[~df["launch_id"].isin(EXCLUDED_LAUNCHES)].copy()
     df["mission_success"] = df["mission_success"].map(
         {True: 1, False: 0, "True": 1, "False": 0}
     )
