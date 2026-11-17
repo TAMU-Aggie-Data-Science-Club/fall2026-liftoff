@@ -106,6 +106,20 @@ train_model.py    → models/baseline_model.pkl
 
 The script prints a quick check before saving: it trains on older launches and reports accuracy, events caught, false alarms, and ROC-AUC on the newest ones (holdout rule in §6). The **saved** model is then retrained on all labelled launches.
 
+### 5.1 RandomForest comparison model
+
+`src/models/train_random_forest.py` trains a scikit-learn `RandomForestClassifier` on the same labels and the same time-ordered holdout (§6), so its numbers can be compared with XGBoost's. It is not yet included in `evaluate.py`'s tuning or cross-validation.
+
+| Setting | Value |
+|---|---|
+| Features | §3 numeric features + `upper_wind_max_kmh` (high-altitude wind) + one-hot `rocket_type` |
+| Trees / `min_samples_leaf` | 500 / 2 |
+| Class weighting | `class_weight="balanced"`, the same idea as XGBoost's weights |
+| Missing values | Left as NaN; scikit-learn ≥ 1.4 forests handle them natively |
+| Decision threshold | 0.5 |
+
+It prints holdout accuracy, precision, recall, F1, ROC-AUC, PR-AUC and impurity-based feature importance, then saves a model retrained on all labelled launches to `models/random_forest_model.pkl`.
+
 ---
 
 ## 6. Validation method
@@ -192,7 +206,8 @@ python src/data/fetch_spacex.py
 python src/data/fetch_weather.py
 python src/data/build_features.py
 python src/models/train_model.py   # writes models/baseline_model.pkl
-python src/models/evaluate.py      # after PR #49 merges; writes reports/model_evaluation.json
+python src/models/evaluate.py      # writes reports/model_evaluation.json
+python src/models/train_random_forest.py   # RandomForest comparison; writes models/random_forest_model.pkl
 ```
 
 All data outputs stay under the git-ignored `data/` folder (see [`DATA.md`](DATA.md)).
