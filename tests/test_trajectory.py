@@ -238,9 +238,9 @@ def test_reads_prediction_from_a_saved_model():
         "cloud_cover": rng.uniform(0, 100, rows),
         "payload_mass_kg": rng.uniform(1_000, 20_000, rows),
         "rocket_type": ["Falcon 9"] * rows,
-        "mission_success": rng.integers(0, 2, rows),
+        "is_delayed": rng.integers(0, 2, rows),
     })
-    saved = {"models": {"success": {"booster": train(data, "mission_success", ["Falcon 9"])}},
+    saved = {"models": {"delay": {"booster": train(data, "is_delayed", ["Falcon 9"])}},
              "feature_columns": FEATURE_COLUMNS, "rocket_categories": ["Falcon 9"]}
     with tempfile.TemporaryDirectory() as folder:
         model_path = Path(folder) / "baseline_model.pkl"

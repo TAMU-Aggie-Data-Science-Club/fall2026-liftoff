@@ -283,7 +283,7 @@ Positive errors mean the simulation is higher or faster than the real flight.
 
 ## 9. ML Risk and Weather Adjustments
 
-`simulate_trajectory_with_risk()` in `src/physics/trajectory.py` connects the launch-success model (`models/baseline_model.pkl`, see [`MODELING.md`](MODELING.md)) to the solver. It returns the same DataFrame as `simulate_trajectory()`, with the adjustments it used in `df.attrs["risk"]`.
+`simulate_trajectory_with_risk()` in `src/physics/trajectory.py` connects the launch-delay model (`models/baseline_model.pkl`, see [`MODELING.md`](MODELING.md)) to the solver. "Success" here means the launch went up on time: $p_{\text{success}} = 1 - p_{\text{delay}}$. It returns the same DataFrame as `simulate_trajectory()`, with the adjustments it used in `df.attrs["risk"]`.
 
 ```python
 from src.physics.trajectory import simulate_trajectory_with_risk
@@ -295,14 +295,14 @@ df.attrs["risk"]   # {"risk_level": ..., "failure_probability": ..., "drag_scale
 ### 9.1 Where the Prediction Comes From
 
 - If the caller passes `success_probability` (the dashboard may already have it), that value is used.
-- Otherwise `predict_success_probability()` loads the pickle and runs the `success` model on the same inputs: payload mass, surface wind, temperature, precipitation, cloud cover, and rocket type. `wind_speed` is in m/s here and is converted to the model's km/h.
+- Otherwise `predict_success_probability()` loads the pickle, runs the `delay` model, and returns $1 - p_{\text{delay}}$. It uses the same inputs: payload mass, surface wind, temperature, precipitation, cloud cover, and rocket type. `wind_speed` is in m/s here and is converted to the model's km/h.
 - If the pickle does not exist (it is not committed; `python src/models/train_model.py` creates it), the risk level is `"unknown"` and only the temperature adjustment applies.
 
 ### 9.2 What Gets Adjusted
 
 | Input | Solver parameter | Rule |
 |---|---|---|
-| Failure probability $1 - p_{\text{success}}$ | `drag_scale`, a multiplier on $C_D$ | below 0.05 → low risk, × 1.00. 0.05 to 0.20 → medium, × 1.10. 0.20 and above → high, × 1.25 |
+| Failure probability $1 - p_{\text{success}}$ (= chance of a delay) | `drag_scale`, a multiplier on $C_D$ | below 0.05 → low risk, × 1.00. 0.05 to 0.20 → medium, × 1.10. 0.20 and above → high, × 1.25 |
 | Surface temperature $T_s$ | `density_scale`, a multiplier on $\rho$ at every altitude | $T_0 / T_s$ with $T_0 = 288.15$ K, clamped to 0.85–1.15. Cold air is denser. |
 | Surface wind | `wind_speed` | Passed straight through (§3.4) |
 

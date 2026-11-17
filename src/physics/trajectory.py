@@ -29,7 +29,8 @@ the downrange axis (positive = tailwind). It only changes the air-relative veloc
 for drag.
 
 ML link (PHYSICS.md section 9): simulate_trajectory_with_risk() takes the launch-success
-probability from models/baseline_model.pkl and the surface temperature, turns them into a
+probability (success = launched on time, i.e. 1 - the "delay" model's output) from
+models/baseline_model.pkl and the surface temperature, turns them into a
 drag multiplier and an air-density multiplier, and runs the same solver with those.
 """
 
@@ -76,7 +77,7 @@ MAX_STEP_S = 5.0                # longest step, so thin atmosphere layers are no
 MAX_DERIVATIVE_CALLS = 200_000  # safety stop; a normal flight needs a few thousand
 
 # ML risk -> drag multiplier (PHYSICS.md section 9). Each row is
-# (failure probability below this, risk level, drag multiplier). These are scenario
+# (failure probability = chance of a delay, below this; risk level; drag multiplier). These are scenario
 # margins chosen by the team, not measured physics.
 RISK_LEVELS = [
     (0.05, "low", 1.00),
@@ -308,7 +309,8 @@ def risk_adjustments(success_probability=None, temperature_c=None):
     Parameters
     ----------
     success_probability : float or None
-        Output of the "success" model, 0-1. None means no prediction is available.
+        Chance the launch goes up on time, 0-1 (1 - the "delay" model's output).
+        None means no prediction is available.
     temperature_c : float or None
         Surface air temperature [deg C]. None means a standard day (15 deg C).
 
@@ -316,7 +318,7 @@ def risk_adjustments(success_probability=None, temperature_c=None):
     -------
     dict with
         risk_level           "low", "medium", "high", or "unknown"
-        failure_probability  1 - success_probability, or None
+        failure_probability  1 - success_probability (the chance of a delay), or None
         drag_scale           drag multiplier from RISK_LEVELS (1.0 when unknown)
         density_scale        T0 / T_surface: cold air is denser, hot air is thinner
     """
@@ -343,8 +345,8 @@ def risk_adjustments(success_probability=None, temperature_c=None):
 def predict_success_probability(payload_mass, wind_speed, temperature_c=15.0, precipitation=0.0,
                                 cloud_cover=0.0, rocket_type="Falcon 9", model_path=MODEL_PATH):
     """
-    Launch-success probability from the saved "success" model, or None if the model
-    file does not exist yet (run src/models/train_model.py to create it).
+    Launch-success (on-time) probability, 1 - the saved "delay" model's output, or None
+    if the model file does not exist yet (run src/models/train_model.py to create it).
 
     wind_speed is in m/s here and is converted to the model's km/h. The other inputs use
     the model's own units: deg C, mm of precipitation, percent cloud cover.
@@ -365,8 +367,9 @@ def predict_success_probability(payload_mass, wind_speed, temperature_c=15.0, pr
         "payload_mass_kg": payload_mass,
         "rocket_type": rocket_type,
     }])
-    booster = saved["models"]["success"]["booster"]
-    return float(predict_probability(booster, features, saved["rocket_categories"])[0])
+    booster = saved["models"]["delay"]["booster"]
+    delay_probability = float(predict_probability(booster, features, saved["rocket_categories"])[0])
+    return 1.0 - delay_probability
 
 
 def simulate_trajectory_with_risk(payload_mass, wind_speed=0.0, *, success_probability=None,
