@@ -6,10 +6,22 @@ Run from the repo root, either way:
     python -m pytest tests/          (if pytest is installed)
 """
 
+import pickle
+import tempfile
+from pathlib import Path
+
 import numpy as np
+import pandas as pd
 
 from src.physics.constants import G0
-from src.physics.trajectory import FALCON9, OUTPUT_COLUMNS, simulate_trajectory
+from src.physics.trajectory import (
+    FALCON9,
+    OUTPUT_COLUMNS,
+    predict_success_probability,
+    risk_adjustments,
+    simulate_trajectory,
+    simulate_trajectory_with_risk,
+)
 
 PAYLOAD = 10_000.0  # kg
 
@@ -161,6 +173,83 @@ def test_extreme_wind_gives_finite_output():
     for wind in (-600.0, -100.0, 100.0, 600.0):
         df = simulate_trajectory(PAYLOAD, wind)
         assert np.isfinite(df.to_numpy()).all()
+
+
+# ---- ML risk -> solver ----
+def test_risk_levels_set_the_drag_multiplier():
+    assert risk_adjustments(0.99)["risk_level"] == "low"
+    assert risk_adjustments(0.99)["drag_scale"] == 1.0
+    assert risk_adjustments(0.90)["risk_level"] == "medium"
+    assert risk_adjustments(0.90)["drag_scale"] == 1.10
+    assert risk_adjustments(0.50)["risk_level"] == "high"
+    assert risk_adjustments(0.50)["drag_scale"] == 1.25
+    assert risk_adjustments(None)["risk_level"] == "unknown"
+    assert risk_adjustments(None)["drag_scale"] == 1.0
+    expect_value_error(lambda: risk_adjustments(1.5))
+
+
+def test_temperature_sets_the_density_multiplier():
+    assert risk_adjustments(temperature_c=15.0)["density_scale"] == 1.0
+    assert np.isclose(risk_adjustments(temperature_c=35.0)["density_scale"], 288.15 / 308.15)
+    assert risk_adjustments(temperature_c=-5.0)["density_scale"] > 1.0
+    assert risk_adjustments(temperature_c=-150.0)["density_scale"] == 1.15  # clamped
+
+
+def test_low_risk_standard_day_matches_plain_solver():
+    plain = simulate_trajectory(PAYLOAD, 0.0, t_end=200.0)
+    risky = simulate_trajectory_with_risk(PAYLOAD, 0.0, success_probability=0.99,
+                                          temperature_c=15.0, t_end=200.0)
+    assert np.allclose(plain.to_numpy(), risky.to_numpy())
+    assert risky.attrs["risk"]["risk_level"] == "low"
+
+
+def test_high_risk_flies_lower_and_slower():
+    low = simulate_trajectory_with_risk(PAYLOAD, 0.0, success_probability=0.99, t_end=150.0)
+    high = simulate_trajectory_with_risk(PAYLOAD, 0.0, success_probability=0.50, t_end=150.0)
+    assert high["altitude_km"].iloc[-1] < low["altitude_km"].iloc[-1]
+    assert high["velocity_mps"].iloc[-1] < low["velocity_mps"].iloc[-1]
+
+
+def test_cold_day_raises_max_q():
+    warm = simulate_trajectory_with_risk(PAYLOAD, 0.0, success_probability=0.99, temperature_c=35.0)
+    cold = simulate_trajectory_with_risk(PAYLOAD, 0.0, success_probability=0.99, temperature_c=-5.0)
+    assert cold.attrs["events"]["max_q_pa"] > warm.attrs["events"]["max_q_pa"]
+
+
+def test_missing_model_file_means_unknown_risk():
+    missing = Path(tempfile.gettempdir()) / "liftoff_no_such_model.pkl"
+    assert predict_success_probability(PAYLOAD, 0.0, model_path=missing) is None
+    df = simulate_trajectory_with_risk(PAYLOAD, 0.0, model_path=missing, t_end=60.0)
+    assert df.attrs["risk"]["risk_level"] == "unknown"
+
+
+def test_reads_prediction_from_a_saved_model():
+    # A tiny stand-in for models/baseline_model.pkl, built the way train_model.py saves it.
+    try:
+        from src.models.train_model import FEATURE_COLUMNS, train
+    except ImportError:
+        return  # xgboost not installed: nothing to check
+    rng = np.random.default_rng(0)
+    rows = 60
+    data = pd.DataFrame({
+        "temperature_2m": rng.uniform(5, 35, rows),
+        "wind_speed_10m": rng.uniform(0, 35, rows),
+        "precipitation": rng.uniform(0, 2, rows),
+        "cloud_cover": rng.uniform(0, 100, rows),
+        "payload_mass_kg": rng.uniform(1_000, 20_000, rows),
+        "rocket_type": ["Falcon 9"] * rows,
+        "mission_success": rng.integers(0, 2, rows),
+    })
+    saved = {"models": {"success": {"booster": train(data, "mission_success", ["Falcon 9"])}},
+             "feature_columns": FEATURE_COLUMNS, "rocket_categories": ["Falcon 9"]}
+    with tempfile.TemporaryDirectory() as folder:
+        model_path = Path(folder) / "baseline_model.pkl"
+        model_path.write_bytes(pickle.dumps(saved))
+        probability = predict_success_probability(PAYLOAD, 5.0, model_path=model_path)
+        df = simulate_trajectory_with_risk(PAYLOAD, 5.0, model_path=model_path, t_end=60.0)
+    assert 0.0 <= probability <= 1.0
+    assert np.isclose(df.attrs["risk"]["failure_probability"], 1.0 - probability)
+    assert df.attrs["risk"]["risk_level"] in ("low", "medium", "high")
 
 
 if __name__ == "__main__":

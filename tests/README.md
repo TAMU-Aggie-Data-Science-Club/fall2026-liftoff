@@ -19,7 +19,7 @@ Each one prints `PASS` for every check and ends with `All N checks passed.` If a
 python -m pytest tests/
 ```
 
-The force and atmosphere tests only need numpy. The trajectory tests also need scipy and pandas.
+The force and atmosphere tests only need numpy. The trajectory tests also need scipy and pandas (and xgboost for one ML check, which is skipped if it is not installed).
 
 ---
 
@@ -56,7 +56,7 @@ Checks `src/physics/atmosphere.py` against published US Standard Atmosphere 1976
 
 ---
 
-## 4. `test_trajectory.py` — Trajectory Solver (20 checks)
+## 4. `test_trajectory.py` — Trajectory Solver (27 checks)
 
 Checks `src/physics/trajectory.py`, mainly `simulate_trajectory(payload_mass, wind_speed)`.
 
@@ -72,6 +72,7 @@ Checks `src/physics/trajectory.py`, mainly `simulate_trajectory(payload_mass, wi
 | Tuned defaults | The default flight looks like a Falcon 9 first stage: MECO near 147 s at 55–75 km and 1500–1900 m/s (PHYSICS.md §8) |
 | Errors | Negative payload, a vehicle too heavy to lift off, and non-positive `t_end`/`dt` raise `ValueError` |
 | Edge cases | NaN/inf inputs and zero fuel raise `ValueError`. Almost no fuel, a crash during the burn, and ±600 m/s wind still return clean, finite rows. |
+| ML risk | Risk level sets the drag multiplier and temperature sets the density multiplier. Low risk on a standard day matches the plain solver. High risk flies lower and slower, and a cold day raises max-Q. A missing model file gives risk "unknown". A stand-in model file saved the way `train_model.py` saves it is read correctly (needs xgboost; skipped without it). |
 
 For speed and a wider stress test, run `python -m src.physics.solver_benchmark`. It runs 50 extreme input combinations and fails if any run crashes or takes 1 s or longer.
 
