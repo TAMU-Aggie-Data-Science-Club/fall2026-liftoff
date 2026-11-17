@@ -295,7 +295,7 @@ df.attrs["risk"]   # {"risk_level": ..., "failure_probability": ..., "drag_scale
 ### 9.1 Where the Prediction Comes From
 
 - If the caller passes `success_probability` (the dashboard may already have it), that value is used.
-- Otherwise `predict_success_probability()` loads the pickle, runs the `delay` model, and returns $1 - p_{\text{delay}}$. It uses the same inputs: payload mass, surface wind, temperature, precipitation, cloud cover, and rocket type. `wind_speed` is in m/s here and is converted to the model's km/h.
+- Otherwise `predict_success_probability()` loads the pickle, runs the `delay` model, and returns $1 - p_{\text{delay}}$. It uses the same inputs: payload mass, surface wind, temperature, precipitation, cloud cover, rocket type, and, optionally, `upper_wind_max` (the strongest high-altitude wind; `None` means unknown and is passed to the model as missing). `wind_speed` and `upper_wind_max` are in m/s here and are converted to the model's km/h.
 - If the pickle does not exist (it is not committed; `python src/models/train_model.py` creates it), the risk level is `"unknown"` and only the temperature adjustment applies.
 
 ### 9.2 What Gets Adjusted

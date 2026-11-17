@@ -343,12 +343,14 @@ def risk_adjustments(success_probability=None, temperature_c=None):
 
 
 def predict_success_probability(payload_mass, wind_speed, temperature_c=15.0, precipitation=0.0,
-                                cloud_cover=0.0, rocket_type="Falcon 9", model_path=MODEL_PATH):
+                                cloud_cover=0.0, rocket_type="Falcon 9", model_path=MODEL_PATH,
+                                upper_wind_max=None):
     """
     Launch-success (on-time) probability, 1 - the saved "delay" model's output, or None
     if the model file does not exist yet (run src/models/train_model.py to create it).
 
-    wind_speed is in m/s here and is converted to the model's km/h. The other inputs use
+    wind_speed and upper_wind_max (strongest high-altitude wind; None = unknown, passed to
+    the model as missing) are in m/s here and are converted to the model's km/h. The other inputs use
     the model's own units: deg C, mm of precipitation, percent cloud cover.
     """
     model_path = Path(model_path)
@@ -362,6 +364,7 @@ def predict_success_probability(payload_mass, wind_speed, temperature_c=15.0, pr
     features = pd.DataFrame([{
         "temperature_2m": temperature_c,
         "wind_speed_10m": abs(wind_speed) * 3.6,
+        "upper_wind_max_kmh": np.nan if upper_wind_max is None else abs(upper_wind_max) * 3.6,
         "precipitation": precipitation,
         "cloud_cover": cloud_cover,
         "payload_mass_kg": payload_mass,
@@ -374,6 +377,7 @@ def predict_success_probability(payload_mass, wind_speed, temperature_c=15.0, pr
 
 def simulate_trajectory_with_risk(payload_mass, wind_speed=0.0, *, success_probability=None,
                                   temperature_c=None, precipitation=0.0, cloud_cover=0.0,
+                                  upper_wind_max=None,
                                   rocket_type="Falcon 9", model_path=MODEL_PATH, **solver_kwargs):
     """
     simulate_trajectory() with the flight path adjusted for ML-predicted risk and weather.
@@ -388,7 +392,7 @@ def simulate_trajectory_with_risk(payload_mass, wind_speed=0.0, *, success_proba
     if success_probability is None:
         success_probability = predict_success_probability(
             payload_mass, wind_speed, 15.0 if temperature_c is None else temperature_c,
-            precipitation, cloud_cover, rocket_type, model_path)
+            precipitation, cloud_cover, rocket_type, model_path, upper_wind_max=upper_wind_max)
     risk = risk_adjustments(success_probability, temperature_c)
     df = simulate_trajectory(payload_mass, wind_speed, density_scale=risk["density_scale"],
                              drag_scale=risk["drag_scale"], **solver_kwargs)
