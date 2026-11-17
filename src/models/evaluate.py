@@ -9,6 +9,8 @@ import pandas as pd
 import xgboost as xgb
 
 from sklearn.metrics import (
+    accuracy_score,
+    average_precision_score,
     precision_score,
     recall_score,
     f1_score,
@@ -21,6 +23,7 @@ from train_model import (
     PARAMS,
     NUM_BOOST_ROUND,
     FEATURE_COLUMNS,
+    holdout_split,
     load_launches,
     prepare_features,
     class_weights,
@@ -107,6 +110,7 @@ def cross_validate(df, spec, params=PARAMS, num_boost_round=NUM_BOOST_ROUND):
             "train_size": len(train_df),
             "test_size": len(test_df),
             "events_in_test": int(actual.sum()),
+            "accuracy": float(accuracy_score(actual, predicted)),
             "precision": float(
                 precision_score(actual, predicted, zero_division=0)
             ),
@@ -121,16 +125,24 @@ def cross_validate(df, spec, params=PARAMS, num_boost_round=NUM_BOOST_ROUND):
                 if len(np.unique(actual)) == 2
                 else None
             ),
+            # PR-AUC (average precision): more informative than ROC-AUC when events are rare.
+            "pr_auc": (
+                float(average_precision_score(actual, event_probabilities))
+                if len(np.unique(actual)) == 2
+                else None
+            ),
         }
 
         results.append(result)
 
         print(
             f"Fold {fold}: "
+            f"Accuracy={result['accuracy']:.3f}, "
             f"Precision={result['precision']:.3f}, "
             f"Recall={result['recall']:.3f}, "
             f"F1={result['f1']:.3f}, "
-            f"ROC-AUC={result['roc_auc']}"
+            f"ROC-AUC={result['roc_auc']}, "
+            f"PR-AUC={result['pr_auc']}"
         )
 
     return results
@@ -295,7 +307,7 @@ def evaluate_holdout(train_df, test_df, spec, params, num_boost_round):
     # XGBoost predicts the probability of label 1.
     probabilities = model.predict(dtest)
 
-    # Evaluate failures (0) or delays (1), depending on the model.
+    # The event is the label value in spec["event_value"] (delays = 1).
     event_probabilities = (
         probabilities if event_value == 1
         else 1 - probabilities
@@ -308,6 +320,7 @@ def evaluate_holdout(train_df, test_df, spec, params, num_boost_round):
         "train_size": len(train_df),
         "test_size": len(test_df),
         "events_in_test": int(actual.sum()),
+        "accuracy": float(accuracy_score(actual, predicted)),
         "precision": float(
             precision_score(actual, predicted, zero_division=0)
         ),
@@ -322,11 +335,16 @@ def evaluate_holdout(train_df, test_df, spec, params, num_boost_round):
             if len(np.unique(actual)) == 2
             else None
         ),
+        "pr_auc": (
+            float(average_precision_score(actual, event_probabilities))
+            if len(np.unique(actual)) == 2
+            else None
+        ),
     }
 
 
 def main():
-    """Run tuning, cross-validation, and evaluation for both targets."""
+    """Run tuning, cross-validation, and evaluation for each model in MODELS."""
 
     launches = load_launches()
     report = {}
@@ -343,10 +361,10 @@ def main():
             "launch_timestamp_utc"
         ).reset_index(drop=True)
 
-        # Reserve newest 20% for final evaluation.
-        split = int(len(df) * 0.8)
-        train_df = df.iloc[:split].copy()
-        test_df = df.iloc[split:].copy()
+        # Reserve the newest launches for final evaluation (time-ordered; the
+        # holdout grows past 20% if needed to contain enough events).
+        train_df, test_df = holdout_split(df, spec)
+        train_df, test_df = train_df.copy(), test_df.copy()
 
         if (
             len(train_df) < N_SPLITS + 1

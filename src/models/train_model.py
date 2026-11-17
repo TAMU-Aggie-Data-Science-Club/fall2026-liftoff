@@ -1,4 +1,4 @@
-"""Train baseline XGBoost models for launch success and launch delay; save them to models/baseline_model.pkl."""
+"""Train the baseline XGBoost launch-delay model (on time vs delayed); save it to models/baseline_model.pkl."""
 
 import pickle
 import re
@@ -24,17 +24,19 @@ CATEGORICAL_FEATURES = ["rocket_type"]
 FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES
 
 # Each model: target column, the label value we care about catching, and its name.
+# One model: on time (0) vs delayed (1). The old success/failure model was dropped
+# (2026-11-17); in-flight failures are labelled by launch timing like any other launch.
 MODELS = {
-    "success": {"target": "mission_success", "event_value": 0, "event_name": "failures"},
     "delay": {"target": "is_delayed", "event_value": 1, "event_name": "delays"},
 }
 
-# Delay definition (team decision 2026-11-08, open to change):
+# Delay definition for SpaceX launches (team decision 2026-11-17, open to change):
 # baseline = latest target time stated in an LL2 note posted at least
 # DELAY_BASELINE_DAYS before the actual launch; delayed if the launch came more
-# than DELAY_THRESHOLD_HOURS after that baseline. No baseline -> left blank.
+# than DELAY_THRESHOLD_HOURS (3 days) after that baseline. No baseline -> left blank.
+# Labels are by timing only: a launch that failed in flight but lifted off on time is on time.
 DELAY_BASELINE_DAYS = 7
-DELAY_THRESHOLD_HOURS = 24
+DELAY_THRESHOLD_HOURS = 72
 
 # Launches left out of training (they stay in the data files).
 EXCLUDED_LAUNCHES = {
@@ -43,7 +45,11 @@ EXCLUDED_LAUNCHES = {
     "3622669f-6e06-467a-86f3-47b56b1114c1",
 }
 
-HOLDOUT_FRACTION = 0.2  # newest launches held out for a quick check
+# Holdout = newest launches. Start with HOLDOUT_FRACTION; if that holds fewer than
+# MIN_TEST_EVENTS events, move the cutoff earlier, up to MAX_HOLDOUT_FRACTION.
+HOLDOUT_FRACTION = 0.2
+MAX_HOLDOUT_FRACTION = 0.4
+MIN_TEST_EVENTS = 10
 PARAMS = {
     "objective": "binary:logistic",
     "eval_metric": "logloss",
@@ -156,7 +162,7 @@ def train(df: pd.DataFrame, target: str, rocket_categories: list[str]) -> xgb.Bo
 def predict_probability(
     booster: xgb.Booster, df: pd.DataFrame, rocket_categories: list[str]
 ) -> np.ndarray:
-    """Probability that the target is 1 (success for the success model, delayed for the delay model)."""
+    """Probability that the target is 1 (delayed)."""
     dmatrix = xgb.DMatrix(
         prepare_features(df, rocket_categories), enable_categorical=True
     )
@@ -173,9 +179,24 @@ def roc_auc(labels: np.ndarray, scores: np.ndarray) -> float | None:
     return (ranks[labels == 1].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg)
 
 
-def report_holdout(df: pd.DataFrame, spec: dict, rocket_categories: list[str]) -> None:
+def holdout_split(df: pd.DataFrame, spec: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Split date-sorted launches into older train / newer test, keeping time order.
+
+    The newest HOLDOUT_FRACTION is the starting test set. If it has fewer than
+    MIN_TEST_EVENTS events, the cutoff moves earlier one launch at a time until it
+    does, but the test set never exceeds MAX_HOLDOUT_FRACTION.
+    """
+    is_event = (df[spec["target"]] == spec["event_value"]).to_numpy()
+    events_from = np.cumsum(is_event[::-1])[::-1]  # events in df.iloc[i:]
     split = int(len(df) * (1 - HOLDOUT_FRACTION))
-    train_df, test_df = df.iloc[:split], df.iloc[split:]
+    earliest = int(len(df) * (1 - MAX_HOLDOUT_FRACTION))
+    while split > earliest and events_from[split] < MIN_TEST_EVENTS:
+        split -= 1
+    return df.iloc[:split], df.iloc[split:]
+
+
+def report_holdout(df: pd.DataFrame, spec: dict, rocket_categories: list[str]) -> None:
+    train_df, test_df = holdout_split(df, spec)
     booster = train(train_df, spec["target"], rocket_categories)
 
     labels = test_df[spec["target"]].astype(int).to_numpy()
@@ -188,8 +209,11 @@ def report_holdout(df: pd.DataFrame, spec: dict, rocket_categories: list[str]) -
     print(
         f"  Holdout check: trained on {len(train_df)} launches up to "
         f"{train_df['launch_timestamp_utc'].max():%Y-%m-%d}, "
-        f"tested on the newest {len(test_df)}"
+        f"tested on the newest {len(test_df)} ({len(test_df) / len(df):.0%})"
     )
+    if actual_event.sum() < MIN_TEST_EVENTS:
+        print(f"    Warning: fewer than {MIN_TEST_EVENTS} {name} even with a "
+              f"{MAX_HOLDOUT_FRACTION:.0%} holdout; treat these numbers as rough.")
     print(f"    {name.capitalize()} in test set:".ljust(28) + f"{actual_event.sum()}")
     print(f"    Accuracy:".ljust(28) + f"{(predicted_event == actual_event).mean():.3f}")
     print(f"    {name.capitalize()} caught:".ljust(28)
