@@ -16,6 +16,7 @@ MODEL_PATH = REPO_ROOT / "models" / "baseline_model.pkl"
 NUMERIC_FEATURES = [
     "temperature_2m",
     "wind_speed_10m",
+    "upper_wind_max_kmh",
     "precipitation",
     "cloud_cover",
     "payload_mass_kg",
