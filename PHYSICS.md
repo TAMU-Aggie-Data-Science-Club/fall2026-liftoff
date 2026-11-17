@@ -194,6 +194,15 @@ sol = solve_ivp(f, (t0, t_end), y0, events=[burnout, apogee, ground_impact],
  
 **Implementation note.** Run one `solve_ivp` call for the powered flight and a second for the coast. Thrust switches off at burnout, and the solver handles that jump in the equations more cleanly as two calls than as one.
 
+### 6.4 As Implemented (`src/physics/trajectory.py`)
+
+- **Separate `solve_ivp` calls** for the vertical rise, the pitch kick, the gravity turn, and the coast. Thrust direction jumps at the start and end of the kick, and no solver step is allowed to cross a jump. Stepping across them cost tens of metres of accuracy.
+- **Burnout** is not searched for with an event. $\dot m_p$ is constant, so burnout is at exactly $t_{\text{burn}}$ and the powered phase simply ends there.
+- **Tolerances:** `rtol=1e-6`, `atol=1e-3`, `max_step=5.0` s. This is within 2 m and 0.03 m/s of a run with `rtol=1e-12`, and takes about 50 ms per flight. The §6.1 values (`rtol=1e-8`, `max_step=1.0`) took about five times longer for no visible gain.
+- **Ground impact** is also checked during the burn, so a rocket that pitches into the ground stops there instead of being integrated underground.
+- **Safety checks:** non-finite or negative inputs, no propellant to burn, and $T/W \le 1$ raise `ValueError`. The integration stops with `RuntimeError` after 200 000 derivative evaluations so it can never run forever.
+- **Benchmark:** `python -m src.physics.solver_benchmark` runs 50 extreme input combinations (payload from 0 to 150 t, wind up to ±600 m/s, zero fuel, extreme kicks) and fails if any run crashes or takes 1 s or longer. All 50 pass, and the slowest takes under 0.1 s.
+
 ---
 
 ## 7. Constants
