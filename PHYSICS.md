@@ -90,7 +90,7 @@ $$
 | $a$ | Speed of sound $= \sqrt{\gamma_{\text{air}} R\, T_{\text{atm}}(h)}$ | m/s |
 | $M$ | Mach number | – |
  
-Drag acts along $-\hat{\mathbf v}$. There is no wind (air at rest in the flat-Earth frame) and no lift, because angle of attack is assumed zero.
+Drag acts along $-\hat{\mathbf v}$. There is no lift, because angle of attack is assumed zero. By default there is no wind (air at rest in the flat-Earth frame). `simulate_trajectory` accepts an optional constant horizontal `wind_speed` along the downrange axis, in which case drag uses the velocity relative to the air, $(v_x - w,\ v_y)$.
 
 ### 3.5 Atmosphere — US Standard Atmosphere 1976 (default)
  
@@ -153,7 +153,7 @@ During the kick, the tilted thrust gives the vehicle a small horizontal velocity
 | A6  | US76 standard atmosphere, no wind                 | **Reasonable**                                          | Real day-of-launch density is within a few percent. Winds are ignored. Open-Meteo weather feeds the ML model, not the physics.                                                                     |
 | A7  | Full thrust for the whole burn, constant $\dot m$ | **Oversimplified**                                      | Falcon 9 and the Shuttle throttle down through max-Q. Our `max_q` will over-predict and burnout velocity may be high.                                                                              |
 | A8  | Constant $C_D$ (v1 default)                       | **Oversimplified** in the transonic range               | $C_D$ peaks near Mach 1, where it can be about twice the subsonic value. Use the $C_D(M)$ table when available.                                                                                    |
-| A9  | Single stage                                      | **OK** if we validate first-stage-only events (see §10) | Full-mission values (orbit insertion) are out of scope until multi-stage plus round Earth exist.                                                                                                   |
+| A9  | Single stage                                      | **OK** if we validate first-stage-only events (see §8)  | Full-mission values (orbit insertion) are out of scope until multi-stage plus round Earth exist.                                                                                                   |
 | A10 | Exponential atmosphere                            | Hand-check mode only                                    | See §3.5.                                                                                                                                                                                          |
 
 ---
@@ -194,6 +194,15 @@ sol = solve_ivp(f, (t0, t_end), y0, events=[burnout, apogee, ground_impact],
  
 **Implementation note.** Run one `solve_ivp` call for the powered flight and a second for the coast. Thrust switches off at burnout, and the solver handles that jump in the equations more cleanly as two calls than as one.
 
+### 6.4 As Implemented (`src/physics/trajectory.py`)
+
+- **Separate `solve_ivp` calls** for the vertical rise, the pitch kick, the gravity turn, and the coast. Thrust direction jumps at the start and end of the kick, and no solver step is allowed to cross a jump. Stepping across them cost tens of metres of accuracy.
+- **Burnout** is not searched for with an event. $\dot m_p$ is constant, so burnout is at exactly $t_{\text{burn}}$ and the powered phase simply ends there.
+- **Tolerances:** `rtol=1e-6`, `atol=1e-3`, `max_step=5.0` s. This is within 2 m and 0.03 m/s of a run with `rtol=1e-12`, and takes about 50 ms per flight. The §6.1 values (`rtol=1e-8`, `max_step=1.0`) took about five times longer for no visible gain.
+- **Ground impact** is also checked during the burn, so a rocket that pitches into the ground stops there instead of being integrated underground.
+- **Safety checks:** non-finite or negative inputs, no propellant to burn, and $T/W \le 1$ raise `ValueError`. The integration stops with `RuntimeError` after 200 000 derivative evaluations so it can never run forever.
+- **Benchmark:** `python -m src.physics.solver_benchmark` runs 50 extreme input combinations (payload from 0 to 150 t, wind up to ±600 m/s, zero fuel, extreme kicks) and fails if any run crashes or takes 1 s or longer. All 50 pass, and the slowest takes under 0.1 s.
+
 ---
 
 ## 7. Constants
@@ -207,3 +216,101 @@ sol = solve_ivp(f, (t0, t_end), y0, events=[burnout, apogee, ground_impact],
 | $r_0$ (US76 geopotential) | 6 356 766 | m |
 | $R_E$ (mean, v2 gravity) | 6 371 000 | m |
 | $\omega_E$ (v2 rotation) | 7.2921159e-5 | rad/s |
+
+---
+
+## 8. Benchmark Validation
+
+`src/physics/validation.py` compares `simulate_trajectory()` with real Falcon 9 webcast telemetry stored in `data/reference/telemetry/` (see `data/reference/README.md`).
+
+```sh
+python -m src.physics.validation          # error table for the current defaults
+python -m src.physics.validation --fit    # also re-fit the tuned parameters
+```
+
+### 8.1 Method
+
+- **Flights:** SpaceX CRS-12 (2017), Iridium NEXT 1 (2017), Crew Dragon Demo-1 (2019).
+- **Quantities:** altitude [km] and speed [m/s] against time. The telemetry has no downrange position, so downrange distance is not validated.
+- **Window:** liftoff to main-engine cutoff (MECO), compared once per second. The model is single-stage on a flat Earth (A3, A9), and the telemetry after MECO follows the second stage, so there is nothing valid to compare past that point.
+- **Error measures:** root-mean-square error (RMSE) and largest error over the window, plus the error at the end of the window.
+- **TLEs:** the Space-Track TLEs describe the orbit reached after the second-stage burn. They are not used here because the model stops at first-stage burnout.
+
+### 8.2 Parameter Adjustments
+
+With the published vehicle values and no tuning (full throttle, all propellant burned, 2° pitch kick), the simulated rocket reaches cutoff 40–55 km too high and 600–900 m/s too fast. Three parameters were fitted to the telemetry by minimising the altitude, speed, and burn-time error over all three flights (`fit_parameters()`):
+
+| Parameter | Before | Fitted | Why it is needed |
+|---|---|---|---|
+| `throttle` (average, whole burn) | 1.00 | 0.87 | Falcon 9 throttles down through max-Q and before MECO (A7). A constant average is the simplest stand-in. |
+| `landing_reserve_mass` | 0 kg | 50 000 kg | The first stage keeps propellant for its boostback, entry, and landing burns, so it is not burned on the way up. |
+| `KICK_ANGLE_DEG` | 2.0° | 0.56° | Sets how quickly the gravity turn pitches over (§4). At the lower thrust-to-weight ratio a 2° kick pitches over too far and the rocket falls back to the ground about 50 s after burnout. |
+
+These are fitted values, not published ones. They are now the defaults in `trajectory.py`.
+
+### 8.3 Results
+
+Error of the simulation against telemetry from liftoff to 147 s:
+
+| | CRS-12 | Demo-1 | Iridium NEXT 1 |
+|---|---|---|---|
+| **Before tuning** | | | |
+| Altitude RMSE [km] | 20.2 | 15.2 | 17.3 |
+| Speed RMSE [m/s] | 407 | 355 | 256 |
+| Altitude error at cutoff [km] | +54.0 | +41.4 | +48.8 |
+| Speed error at cutoff [m/s] | +905 | +880 | +602 |
+| **After tuning (current defaults)** | | | |
+| Altitude RMSE [km] | 3.0 | 2.5 | 1.0 |
+| Largest altitude error [km] | 7.7 | 6.0 | 2.4 |
+| Speed RMSE [m/s] | 55 | 25 | 104 |
+| Largest speed error [m/s] | 102 | 66 | 251 |
+| Altitude error at cutoff [km] | +7.7 (+13%) | −6.0 (−8%) | +2.4 (+4%) |
+| Speed error at cutoff [m/s] | +64 (+4%) | +66 (+4%) | −221 (−11%) |
+| Real MECO / simulated burnout [s] | 147 / 147.3 | 158 / 147.3 | 147 / 147.3 |
+| Real max-Q / simulated max-Q [s] | 64 / 72 | 59 / 73 | 70 / 73 |
+
+Positive errors mean the simulation is higher or faster than the real flight.
+
+### 8.4 Findings
+
+- **Accuracy after tuning:** altitude RMSE is 1–3 km and speed RMSE is 25–104 m/s over the first-stage burn. At cutoff the simulation is within 13% in altitude and 11% in speed for all three flights.
+- **One vehicle for three rockets.** The flights used three Falcon 9 versions (Block 3, 4, and 5) with different thrust, propellant load, and landing profile, but the model uses a single set of values. This is the main remaining error: Demo-1 really burned 11 s longer, and Iridium NEXT 1 was 221 m/s faster at cutoff than the shared values predict.
+- **Max-Q is 3–14 s late.** A constant throttle cannot reproduce the real throttle-down around max-Q, so the simulated speed is too low early and catches up later.
+- **Telemetry limits.** Webcast speed is Earth-relative, which matches the non-rotating frame (A5). Speed and altitude are read off the on-screen display, so they carry some read-out error of their own.
+- **After MECO** the simulated first stage coasts to an apogee of about 140–155 km and falls back with no landing burn. This part is not validated.
+
+---
+
+## 9. ML Risk and Weather Adjustments
+
+`simulate_trajectory_with_risk()` in `src/physics/trajectory.py` connects the launch-delay model (`models/baseline_model.pkl`, see [`MODELING.md`](MODELING.md)) to the solver. "Success" here means the launch went up on time: $p_{\text{success}} = 1 - p_{\text{delay}}$. It returns the same DataFrame as `simulate_trajectory()`, with the adjustments it used in `df.attrs["risk"]`.
+
+```python
+from src.physics.trajectory import simulate_trajectory_with_risk
+
+df = simulate_trajectory_with_risk(payload_mass=10_000, wind_speed=5.0, temperature_c=28.0)
+df.attrs["risk"]   # {"risk_level": ..., "failure_probability": ..., "drag_scale": ..., "density_scale": ...}
+```
+
+### 9.1 Where the Prediction Comes From
+
+- If the caller passes `success_probability` (the dashboard may already have it), that value is used.
+- Otherwise `predict_success_probability()` loads the pickle, runs the `delay` model, and returns $1 - p_{\text{delay}}$. It uses the same inputs: payload mass, surface wind, temperature, precipitation, cloud cover, rocket type, and, optionally, `upper_wind_max` (the strongest high-altitude wind; `None` means unknown and is passed to the model as missing). `wind_speed` and `upper_wind_max` are in m/s here and are converted to the model's km/h.
+- If the pickle does not exist (it is not committed; `python src/models/train_model.py` creates it), the risk level is `"unknown"` and only the temperature adjustment applies.
+
+### 9.2 What Gets Adjusted
+
+| Input | Solver parameter | Rule |
+|---|---|---|
+| Failure probability $1 - p_{\text{success}}$ (= chance of a delay) | `drag_scale`, a multiplier on $C_D$ | below 0.05 → low risk, × 1.00. 0.05 to 0.20 → medium, × 1.10. 0.20 and above → high, × 1.25 |
+| Surface temperature $T_s$ | `density_scale`, a multiplier on $\rho$ at every altitude | $T_0 / T_s$ with $T_0 = 288.15$ K, clamped to 0.85–1.15. Cold air is denser. |
+| Surface wind | `wind_speed` | Passed straight through (§3.4) |
+
+Both multipliers are also plain arguments of `simulate_trajectory()`, so they can be set without the model.
+
+### 9.3 Limits
+
+- **The drag multipliers are scenario margins, not physics.** A higher predicted failure risk does not physically increase drag. The thresholds and multipliers in `RISK_LEVELS` are placeholders for the team to tune.
+- **The model's probabilities are not calibrated.** Training up-weights the rare failure class ([`MODELING.md`](MODELING.md)), which pushes predicted failure probabilities above the true rate of about 2%. Re-check the thresholds once the evaluation results are in.
+- **The effect on the path is small**, because drag is a small force next to thrust and gravity. For a 10 t payload, high risk (× 1.25 drag) lowers the cutoff altitude by about 0.35 km and the apogee by about 1.4 km. Going from 35 °C to −5 °C raises max-Q by about 15% and changes the cutoff altitude by about 0.2 km.
+- **The density multiplier is applied at every altitude**, although real surface temperature mostly affects the lowest few kilometres. Ambient pressure, and so thrust, is left unchanged.
