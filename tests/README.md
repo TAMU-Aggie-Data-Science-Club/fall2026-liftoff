@@ -10,6 +10,7 @@ Run everything from the **repo root** (the `fall2026-liftoff` folder), not from 
 ```sh
 python -m tests.test_forces
 python -m tests.test_atmosphere
+python -m tests.test_trajectory
 ```
 Each one prints `PASS` for every check and ends with `All N checks passed.` If a check fails, it stops and shows an `AssertionError` with the values that didn't match.
 
@@ -18,7 +19,7 @@ Each one prints `PASS` for every check and ends with `All N checks passed.` If a
 python -m pytest tests/
 ```
 
-The only dependency is numpy.
+The force and atmosphere tests only need numpy. The trajectory tests also need scipy and pandas.
 
 ---
 
@@ -55,7 +56,24 @@ Checks `src/physics/atmosphere.py` against published US Standard Atmosphere 1976
 
 ---
 
-## 4. Notes
+## 4. `test_trajectory.py` — Trajectory Solver (13 checks)
+
+Checks `src/physics/trajectory.py`, mainly `simulate_trajectory(payload_mass, wind_speed)`.
+
+| Area | What it checks |
+|---|---|
+| Output format | Columns are `time_sec`, `altitude_km`, `downrange_km`, `velocity_mps`. One row per second from 0 to 500 s, no NaN. `dt` and `t_end` change the grid. |
+| Pad state | The first row is t = 0 with zero altitude, downrange, and speed |
+| Powered flight | Altitude and speed rise the whole burn and the rocket moves downrange |
+| Burnout | Burnout time equals propellant mass / mass flow. Speed drops once thrust is off. |
+| Hand check | With no kick and no drag, speed after 1 s matches $(T_{\text{SL}}/m_0 - g_0)\,t$ within 1% |
+| Inputs | Heavier payload is slower. Tailwind pushes the rocket further downrange, headwind less. |
+| Events | Max-Q comes before burnout and apogee after it |
+| Errors | Negative payload, a vehicle too heavy to lift off, and non-positive `t_end`/`dt` raise `ValueError` |
+
+---
+
+## 5. Notes
 
 - The Falcon 9 numbers are approximate public values used as sample inputs. They are not validation against a real launch. That is a separate deliverable.
 - If you change a constant in `constants.py` (like `P0` or `R_AIR`), rerun both files. A lot of the expected values depend on them.
