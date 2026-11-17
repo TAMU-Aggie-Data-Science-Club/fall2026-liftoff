@@ -43,17 +43,20 @@ FALCON9 = {
     "isp_vac": 311.0,              # vacuum specific impulse [s]
     "stage1_dry_mass": 22_200.0,   # first stage without propellant [kg]
     "stage1_prop_mass": 395_700.0, # first-stage propellant [kg]
-    "landing_reserve_mass": 0.0,   # propellant kept back for landing, never burned in ascent [kg]
-    "throttle": 1.0,               # average throttle during the burn, 0-1 [-]
+    "landing_reserve_mass": 50_000.0,  # propellant kept back for landing, not burned in ascent [kg]
+    "throttle": 0.87,              # average throttle during the burn, 0-1 [-]
     "upper_stage_mass": 111_500.0, # fuelled second stage, carried as dead mass [kg]
     "diameter": 3.66,              # body diameter [m]
     "cd": 0.3,                     # constant drag coefficient [-]
 }
 
-# Gravity-turn guidance (PHYSICS.md section 4). These are fitted values, not physics.
+# landing_reserve_mass, throttle and KICK_ANGLE_DEG are fitted to real Falcon 9 telemetry
+# (PHYSICS.md section 8, src/physics/validation.py). They are not published values.
+
+# Gravity-turn guidance (PHYSICS.md section 4).
 KICK_START_S = 10.0     # end of the vertical rise [s]
 KICK_DURATION_S = 10.0  # length of the pitch-kick ramp [s]
-KICK_ANGLE_DEG = 2.0    # how far the thrust tilts from vertical during the kick [deg]
+KICK_ANGLE_DEG = 0.56   # how far the thrust tilts from vertical during the kick [deg]
 
 OUTPUT_COLUMNS = ["time_sec", "altitude_km", "downrange_km", "velocity_mps"]
 

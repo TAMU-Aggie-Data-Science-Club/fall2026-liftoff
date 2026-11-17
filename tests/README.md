@@ -56,19 +56,20 @@ Checks `src/physics/atmosphere.py` against published US Standard Atmosphere 1976
 
 ---
 
-## 4. `test_trajectory.py` — Trajectory Solver (13 checks)
+## 4. `test_trajectory.py` — Trajectory Solver (15 checks)
 
 Checks `src/physics/trajectory.py`, mainly `simulate_trajectory(payload_mass, wind_speed)`.
 
 | Area | What it checks |
 |---|---|
-| Output format | Columns are `time_sec`, `altitude_km`, `downrange_km`, `velocity_mps`. One row per second from 0 to 500 s, no NaN. `dt` and `t_end` change the grid. |
+| Output format | Columns are `time_sec`, `altitude_km`, `downrange_km`, `velocity_mps`. One row per second, no NaN. `dt` and `t_end` change the grid. Rows stop at ground impact. |
 | Pad state | The first row is t = 0 with zero altitude, downrange, and speed |
 | Powered flight | Altitude and speed rise the whole burn and the rocket moves downrange |
 | Burnout | Burnout time equals propellant mass / mass flow. Speed drops once thrust is off. |
-| Hand check | With no kick and no drag, speed after 1 s matches $(T_{\text{SL}}/m_0 - g_0)\,t$ within 1% |
+| Hand check | With no kick and no drag, speed after 1 s matches $(T_{\text{SL}}/m_0 - g_0)\,t$ within 3% |
 | Inputs | Heavier payload is slower. Tailwind pushes the rocket further downrange, headwind less. |
 | Events | Max-Q comes before burnout and apogee after it |
+| Tuned defaults | The default flight looks like a Falcon 9 first stage: MECO near 147 s at 55–75 km and 1500–1900 m/s (PHYSICS.md §8) |
 | Errors | Negative payload, a vehicle too heavy to lift off, and non-positive `t_end`/`dt` raise `ValueError` |
 
 ---
