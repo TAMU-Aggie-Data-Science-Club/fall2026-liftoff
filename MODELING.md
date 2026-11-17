@@ -1,62 +1,58 @@
 # Modeling Overview
 
-How the launch-outcome models are built, trained, and evaluated. This file describes the code on `main` unless a section says otherwise.
+How the launch-delay model is built, trained, and evaluated. This file describes the code on `main` unless a section says otherwise.
 
-**Status (2026-11-10):**
-- Baseline training: merged to `main` (PR #48, `src/models/train_model.py`).
-- Evaluation and tuning: proposed in PR #49 (`src/models/evaluate.py`), **not yet merged or run end to end**.
+**Status (2026-11-17):**
+- **Reframed: the model predicts on time vs delayed.** The success/failure model was dropped; there is no failure class (§1, §2).
+- Baseline training: `src/models/train_model.py` (PR #48).
+- Evaluation and tuning: `src/models/evaluate.py` (PR #49), **not yet run end to end**.
 - Results (§7) and feature importance (§8): **placeholders** until the evaluation runs on the full dataset, including `spacex_launch_updates.csv`.
 - Upper-level winds: **not used by the model yet**. See §9.
 
 ---
 
-## 1. Models
+## 1. Model
 
-Two binary XGBoost classifiers are trained by one script and saved together in `models/baseline_model.pkl`.
+One binary XGBoost classifier, saved in `models/baseline_model.pkl`. A launch is either **on time** (successfully launched within the delay window) or **delayed**.
 
 | Model | Target column | Label = 1 means | Event we care about catching |
 |---|---|---|---|
-| `success` | `mission_success` | Launch succeeded | Failures (label 0) |
-| `delay` | `is_delayed` | Launch was delayed > 24 h | Delays (label 1) |
+| `delay` | `is_delayed` | Launch lifted off more than 72 h after its baseline target (§2) | Delays (label 1) |
 
-Both models output the probability that the label is 1. For the success model, the failure risk is `1 − p`.
+The model outputs the probability of a delay; the on-time probability is `1 − p`.
 
-> **Note:** [`DELIVERABLES.md`](DELIVERABLES.md) and [`README.md`](README.md) describe the delay model as a *regressor* for delay hours. The implemented model is a *classifier* (delayed or not). Those docs have not been updated to match.
+**Why no failure class (2026-11-17):** the old `success` model predicted `mission_success`, which had 15 failures in 743 launches. The project now asks whether a launch happens on schedule, not whether it blows up. Amos-6, the only vehicle that exploded before launching, stays excluded. The 14 in-flight failures all lifted off, so they are labelled by timing like any other launch. They can be dropped later if the team decides to.
 
-The pickle holds a dict with `models` (one XGBoost `Booster` per target), `feature_columns`, `rocket_categories`, `params`, `num_boost_round`, and `delay_definition`. Use the saved `rocket_categories` when preparing features for prediction so the categorical encoding matches training.
+The pickle holds a dict with `models` (`{"delay": {...}}`, one XGBoost `Booster`), `feature_columns`, `rocket_categories`, `params`, `num_boost_round`, and `delay_definition`. Use the saved `rocket_categories` when preparing features for prediction so the categorical encoding matches training.
 
 ---
 
 ## 2. Labels
 
-### 2.1 Mission success
-
-From the Launch Library 2 launch status in `fetch_spacex.py`:
-
-| LL2 status | `mission_success` |
-|---|---|
-| Success | 1 |
-| Failure, Partial Failure | 0 |
-| Anything else (TBD, Go, In Flight, …) | missing → launch dropped from this model |
-
-Pad failures (for example, Amos-6 in 2016) count as failures on `main`. A follow-up commit on `data/ml-baseline` (`ba62d46`) excludes Amos-6, but it has not been merged.
-
-### 2.2 Launch delay
+### 2.1 Launch delay (the only label)
 
 There is no delay field in the API, so `train_model.py` derives one from LL2 schedule notes saved in `data/raw/spacex_launch_updates.csv` (written by `fetch_spacex.py`).
 
 1. Keep notes that announce a schedule (keywords: *target, NET, delay, slip, moved, scheduled, recycle, revert*) and contain a date, for example "Now targeting Nov 05 at 02:35 UTC".
 2. Parse the target date and time. If a note gives a day but no time, the whole day counts as on time. If it gives no year, the year is inferred from when the note was posted.
 3. **Baseline:** the latest target announced in a note posted **at least 7 days** before the actual launch.
-4. **Delayed:** the actual launch came **more than 24 hours** after the baseline.
+4. **Delayed:** the actual launch came **more than 72 hours (3 days)** after the baseline. Otherwise it is **on time**, whatever happened after liftoff.
 5. Launches with no qualifying note have a missing label and are excluded from the delay model. This covers most launches before about 2020.
 
 | Constant | Value | Meaning |
 |---|---|---|
 | `DELAY_BASELINE_DAYS` | 7 | How far before launch the baseline note must be posted |
-| `DELAY_THRESHOLD_HOURS` | 24 | Slip beyond the baseline that counts as delayed |
+| `DELAY_THRESHOLD_HOURS` | 72 | Slip beyond the baseline that counts as delayed |
 
-The team agreed on these values on 2026-11-08, and they are open to change.
+**The delay window depends on the data source.** Each launch provider gets its own threshold, because providers schedule differently. Only SpaceX is modelled today:
+
+| Source / provider | Baseline | Delay threshold | Decided |
+|---|---|---|---|
+| SpaceX (Launch Library 2 schedule notes) | Latest target announced ≥ 7 days before launch | > 72 h | 2026-11-17 (was 24 h, set 2026-11-08) |
+
+The 72 h figure is a **team definition**. We found no published SpaceX rule that defines a delay. When another provider is added, give it a row here and its own threshold in code.
+
+Amos-6 (exploded on the pad in 2016, never launched) is excluded from training.
 
 ---
 
@@ -108,7 +104,7 @@ train_model.py    → models/baseline_model.pkl
 | Class weighting | Each class weighted so both contribute equally in total, which upweights the rare class |
 | Decision threshold | 0.5 |
 
-The script prints a quick check before saving: it trains on the oldest 80% of labelled launches and reports accuracy, events caught, false alarms, and ROC-AUC on the newest 20%. The **saved** model is then retrained on all labelled launches.
+The script prints a quick check before saving: it trains on older launches and reports accuracy, events caught, false alarms, and ROC-AUC on the newest ones (holdout rule in §6). The **saved** model is then retrained on all labelled launches.
 
 ---
 
@@ -118,7 +114,7 @@ The script prints a quick check before saving: it trains on the oldest 80% of la
 
 For each model:
 
-1. Sort labelled launches by date and hold out the **newest 20%**. They are not used for tuning.
+1. Sort labelled launches by date and hold out the **newest launches**. They are not used for tuning. The holdout starts at the newest 20%. If that contains fewer than `MIN_TEST_EVENTS` (10) delays, the cutoff moves earlier until it does, up to `MAX_HOLDOUT_FRACTION` (40%). Time order is kept, so the model never trains on launches newer than the ones it is tested on. If 40% still has too few delays, the script prints a warning. Both constants are in `train_model.py`, and both scripts use the same `holdout_split()`.
 2. **Grid search** on the older 80% using **5-fold `TimeSeriesSplit`**. Each fold trains on the past and tests on the future.
 
    | Parameter | Values |
@@ -132,7 +128,7 @@ For each model:
 4. Score the held-out newest 20% once.
 5. Compute feature importance by **gain** on the 80% training split.
 
-Precision, recall, and F1 treat the **event** as the positive class: failures for the success model, delays for the delay model. Output goes to `reports/model_evaluation.json`.
+Metrics, reported per fold and on the holdout: **accuracy, precision, recall, F1, ROC-AUC and PR-AUC** (average precision). Precision, recall, F1 and PR-AUC treat a **delay** as the positive class. Delays are the minority class, so accuracy alone is misleading: a model that always says "on time" scores high. Read accuracy alongside precision and recall. Output goes to `reports/model_evaluation.json`.
 
 ---
 
@@ -140,13 +136,12 @@ Precision, recall, and F1 treat the **event** as the positive class: failures fo
 
 > **Placeholder.** Fill these in from `reports/model_evaluation.json` once PR #49 is merged and run. The delay model is waiting on `data/raw/spacex_launch_updates.csv`.
 
-| Model | Labelled launches | Events | Best `max_depth` / `eta` / rounds | CV mean ROC-AUC | Holdout precision | Holdout recall | Holdout F1 | Holdout ROC-AUC |
-|---|---|---|---|---|---|---|---|---|
-| `success` | TBD | TBD failures | TBD | TBD | TBD | TBD | TBD | TBD |
-| `delay` | TBD | TBD delays | TBD | TBD | TBD | TBD | TBD | TBD |
+| Model | Labelled launches | Delays | Best `max_depth` / `eta` / rounds | CV mean ROC-AUC | Holdout accuracy | Holdout precision | Holdout recall | Holdout F1 | Holdout ROC-AUC | Holdout PR-AUC |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `delay` | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
 
 Things to note once results arrive:
-- Failures are rare, so some time folds may contain no failures. ROC-AUC is undefined for those folds and they are skipped. Report how many folds were valid.
+- Delays may be rare in some time folds. ROC-AUC and PR-AUC are undefined for folds with no delays, and those folds are skipped. Report how many folds were valid.
 - The delay model only covers launches with schedule notes, mostly from 2020 onward. It should not be read as covering earlier launches.
 
 ---
@@ -155,14 +150,14 @@ Things to note once results arrive:
 
 > **Placeholder.** Fill in from `feature_importance` in `reports/model_evaluation.json`.
 
-| Rank | `success` model feature | Gain | `delay` model feature | Gain |
-|---|---|---|---|---|
-| 1 | TBD | TBD | TBD | TBD |
-| 2 | TBD | TBD | TBD | TBD |
-| 3 | TBD | TBD | TBD | TBD |
-| 4 | TBD | TBD | TBD | TBD |
-| 5 | TBD | TBD | TBD | TBD |
-| 6 | TBD | TBD | TBD | TBD |
+| Rank | `delay` model feature | Gain |
+|---|---|---|
+| 1 | TBD | TBD |
+| 2 | TBD | TBD |
+| 3 | TBD | TBD |
+| 4 | TBD | TBD |
+| 5 | TBD | TBD |
+| 6 | TBD | TBD |
 
 A gain of 0 means the feature was never used in a split. Gain shows how much a feature helps the trees. It does not show which direction it pushes predictions.
 
@@ -186,8 +181,6 @@ To add them:
 Which columns to use is still a team decision: maximum wind, wind at fixed altitudes, or a derived shear (for example, the speed difference between altitude bands, which is not computed anywhere yet).
 
 ### 9.2 Other open items
-- Delay is a classifier, not the regressor described in DELIVERABLES (§1).
-- The Amos-6 exclusion is unmerged (§2.1).
 - `payload_ratio` is unused because there is no capacity source (§4).
 
 ---
