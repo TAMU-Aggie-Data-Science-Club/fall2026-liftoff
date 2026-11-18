@@ -483,6 +483,8 @@ To avoid leakage, the value used for a launch is the latest one posted **before 
 
 **Decision (2026-11-18):** no model change for now. Propose a short-range indicator (latest pre-launch forecast under 50% GO → delays historically about 4× more common) to the dashboard team ([§10](#10-open-questions-for-the-pm)), and revisit a fitted short-range model once more delays have a forecast.
 
+**Helper:** `src/data/weather_go.py` has `parse_weather_go(comment)` (the percentage in one note) and `latest_weather_go(updates, launch_id, as_of)` (the latest value posted at or before `as_of`; pass the time the prediction is made, or it leaks the outcome). It uses the same parsing as the counts above. **Live use needs upcoming-launch notes:** `fetch_spacex.py` only downloads launches that have flown (`launches/previous/`), so an upcoming launch's notes would have to come from LL2's `launches/upcoming/` endpoint. How to get them (a fetch script or a call from the app) is still to be decided with the dashboard team.
+
 ### 7.11 Still to document
 
 Documentation for the physics data has not been added to this file yet.
