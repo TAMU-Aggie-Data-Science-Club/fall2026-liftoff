@@ -9,6 +9,9 @@ from pathlib import Path
 
 import numpy as np
 import requests
+import truststore
+
+truststore.inject_into_ssl()
 
 
 BASE_URL = "https://archive-api.open-meteo.com/v1/archive"

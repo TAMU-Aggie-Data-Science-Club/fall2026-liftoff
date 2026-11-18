@@ -9,6 +9,7 @@ import pandas as pd
 import xgboost as xgb
 
 from sklearn.metrics import (
+    accuracy_score,
     precision_score,
     recall_score,
     f1_score,
@@ -121,6 +122,7 @@ def cross_validate(df, spec, params=PARAMS, num_boost_round=NUM_BOOST_ROUND):
                 if len(np.unique(actual)) == 2
                 else None
             ),
+            "accuracy": float(accuracy_score(actual, predicted)),
         }
 
         results.append(result)
@@ -308,6 +310,7 @@ def evaluate_holdout(train_df, test_df, spec, params, num_boost_round):
         "train_size": len(train_df),
         "test_size": len(test_df),
         "events_in_test": int(actual.sum()),
+        "accuracy": float(accuracy_score(actual, predicted)),
         "precision": float(
             precision_score(actual, predicted, zero_division=0)
         ),
