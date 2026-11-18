@@ -24,7 +24,12 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from sklearn.decomposition import PCA
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import TimeSeriesSplit
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "src" / "models"))
@@ -171,6 +176,69 @@ def redundancy(df: pd.DataFrame, numeric: list[str]) -> None:
     print(f"\nPad proxies (value is set by the pad, so it adds nothing beyond the pad): {proxies or 'none'}")
 
 
+PCA_FEATURES = [
+    "temperature_2m", "wind_speed_10m", "precipitation", "cloud_cover", "high_altitude_wind_assumed",
+    "upper_wind_max_kmh", "upper_wind_speed_8km_kmh", "upper_wind_speed_10km_kmh", "upper_wind_speed_12km_kmh",
+    "payload_mass_kg", "launchpad_latitude", "launchpad_longitude", "upper_wind_station_distance_km",
+    "days_since_prev_spacex", "days_since_prev_pad", "target_moves_before_baseline", "target_month",
+    "target_temperature_2m", "target_wind_speed_10m", "target_precipitation", "target_cloud_cover",
+]
+KNOWN_A_WEEK_AHEAD = ["days_since_prev_spacex", "target_moves_before_baseline",
+                      "target_wind_speed_10m", "target_cloud_cover"]
+
+
+def pca_check(df: pd.DataFrame) -> None:
+    """PCA on standardized candidate features (complete launches only).
+
+    Checks the redundancy findings (features that point the same way) and whether any
+    component, or the components together, separate delayed from on-time launches.
+    Combined models are scored with time-ordered 5-fold CV (train on the past).
+    """
+    d = df.dropna(subset=PCA_FEATURES).sort_values("launch_timestamp_utc").reset_index(drop=True)
+    X, y = d[PCA_FEATURES].astype(float), d[TARGET].to_numpy()
+    print(f"{len(d)} complete launches ({y.sum()} delayed), {len(PCA_FEATURES)} features")
+
+    pca = PCA().fit(StandardScaler().fit_transform(X))
+    ratio = pca.explained_variance_ratio_
+    cumulative = np.cumsum(ratio)
+    k95 = int(np.searchsorted(cumulative, 0.95) + 1)
+    print(f"Components for 80% / 90% / 95% of variance: "
+          f"{int(np.searchsorted(cumulative, 0.8) + 1)} / {int(np.searchsorted(cumulative, 0.9) + 1)} / {k95}")
+
+    scores = pca.transform(StandardScaler().fit_transform(X))
+    loadings = pd.DataFrame(pca.components_.T, index=PCA_FEATURES)
+    print("\nFirst 6 components: variance, delay AUC, top loadings")
+    for i in range(6):
+        top = loadings[i].abs().sort_values(ascending=False).head(4).index
+        desc = ", ".join(f"{f} {loadings.loc[f, i]:+.2f}" for f in top)
+        print(f"  PC{i + 1} {ratio[i]:.0%}  AUC {roc_auc_score(y, scores[:, i]):.2f}  | {desc}")
+
+    scaled = loadings.iloc[:, :k95] * np.sqrt(pca.explained_variance_[:k95])
+    similarity = pd.DataFrame(np.corrcoef(scaled.to_numpy()), index=PCA_FEATURES, columns=PCA_FEATURES)
+    print(f"\nFeature pairs pointing the same way (|cos| > 0.9 over the first {k95} components):")
+    for i, a in enumerate(PCA_FEATURES):
+        for b in PCA_FEATURES[i + 1:]:
+            if abs(similarity.loc[a, b]) > 0.9:
+                print(f"  {a} ~ {b}: {similarity.loc[a, b]:+.2f}")
+
+    def cv_auc(columns, n_components=None):
+        aucs = []
+        for train, test in TimeSeriesSplit(5).split(d):
+            if len(set(y[train])) < 2 or len(set(y[test])) < 2:
+                continue
+            steps = [StandardScaler()] + ([PCA(n_components)] if n_components else [])
+            model = make_pipeline(*steps, LogisticRegression(class_weight="balanced", max_iter=1000))
+            model.fit(d.loc[train, columns], y[train])
+            aucs.append(roc_auc_score(y[test], model.predict_proba(d.loc[test, columns])[:, 1]))
+        return np.mean(aucs)
+
+    print("\nTime-ordered 5-fold CV ROC-AUC, logistic regression (0.5 = chance):")
+    for n in (2, 5, 10, k95):
+        print(f"  first {n} components: {cv_auc(PCA_FEATURES, n):.2f}")
+    print(f"  all {len(PCA_FEATURES)} features: {cv_auc(PCA_FEATURES):.2f}")
+    print(f"  {len(KNOWN_A_WEEK_AHEAD)} features known a week ahead: {cv_auc(KNOWN_A_WEEK_AHEAD):.2f}")
+
+
 def main() -> None:
     launches = load_launches()
     labelled = launches.dropna(subset=[TARGET]).copy()
@@ -210,6 +278,9 @@ def main() -> None:
     print("\n== Features that add no information ==")
     numeric = [c for c in df.select_dtypes("number").columns if c not in (TARGET, "mission_success", "year")]
     redundancy(df, numeric)
+
+    print("\n== PCA check ==")
+    pca_check(df)
 
 
 if __name__ == "__main__":

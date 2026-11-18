@@ -38,7 +38,7 @@ Decided 2026-11-17:
 - **A missing number the model uses:** the launch is **left out of training and evaluation**. A launch cannot be modelled without the numbers it needs. Only the model's numeric inputs count (`NUMERIC_FEATURES` in `train_model.py`, `RF_NUMERIC_FEATURES` for the RandomForest). A gap in a column the model does not use, such as `payload_ratio` or a fixed-height wind, does not remove the launch.
 - **Never fill a missing number** with 0 or any other value. Keep it as `null` (JSON `null` / pandas `NaN`).
 - **The pipeline keeps every row.** The fetchers and `build_features.py` do not drop launches; the drop happens when the models load the data (`usable_launches()` in `train_model.py`), and the scripts print how many launches were left out and why. That way a gap that gets filled later (for example, NOAA publishing a late sounding) brings the launch back on the next fetch.
-- Which columns are model inputs is set by the feature list, which the EDA ([§7.7](#77-recommendations)) may change. The rule follows that list automatically.
+- Which columns are model inputs is set by the feature list, which the EDA ([§7.8](#78-recommendations)) may change. The rule follows that list automatically.
 
 ---
 
@@ -261,7 +261,7 @@ Because `data/` is git-ignored, nobody gets `gcat_launch.tsv` or the IGRA2 zips 
 
 Produced by `python src/data/eda.py` (run 2026-11-17 on the 746-launch fetch). The target is the **delay label** `is_delayed` from `train_model.py` ([`MODELING.md`](MODELING.md) §2), so the EDA and the model use exactly the same labels. The script prints every table below. It writes nothing except a cache of the weather at each launch's target time (`data/interim/eda_target_weather.csv`, see [§7.5](#75-features-vs-delay)); delete the cache to re-fetch.
 
-> **Pipeline:** the input, `data/processed/ml_features.csv`, is written by `src/data/build_features.py`. A separate cleaning script, `src/data/clean_data.py`, writes a different table to `data/interim/cleaned_launches.csv`; see [§7.8](#78-discrepancy-between-the-two-processed-tables).
+> **Pipeline:** the input, `data/processed/ml_features.csv`, is written by `src/data/build_features.py`. A separate cleaning script, `src/data/clean_data.py`, writes a different table to `data/interim/cleaned_launches.csv`; see [§7.9](#79-discrepancy-between-the-two-processed-tables).
 
 ### 7.1 Pipeline schema
 
@@ -386,18 +386,47 @@ How to read this:
 | `launch_time`, `latitude`, `longitude` | Copies of `launch_timestamp_utc`, `launchpad_latitude`, `launchpad_longitude` |
 | `launchpad_latitude`, `launchpad_longitude`, `upper_wind_station_distance_km` | Fixed for each pad, so they only identify the pad (use a pad category instead if the pad is wanted) |
 | `upper_wind_speed_8km_kmh` ~ `upper_wind_speed_10km_kmh` (r = 0.91), `upper_wind_max_kmh` ~ `upper_wind_speed_12km_kmh` (r = 0.91) | Near-duplicates: keep one of each pair at most |
+| `target_temperature_2m` ~ `temperature_2m` (0.99), `days_since_prev_spacex` ~ `days_since_prev_pad` (0.98) | Near-duplicates found by the PCA ([§7.7](#77-pca-check)): temperature barely changes between the target time and liftoff, and the two launch gaps track each other |
 
-### 7.7 Recommendations
+### 7.7 PCA check
+
+Principal component analysis (`pca_check()` in `eda.py`) on the 21 standardized candidate features from [§7.5](#75-features-vs-delay), using the 326 labelled launches with every feature present (72 delayed). PCA ignores the label, so it checks the redundancy findings directly; the delay link is checked by scoring each component, and models built on the components, against the label.
+
+**Redundancy: confirmed.** The 21 features carry about 13 independent dimensions (13 components explain 95% of the variance, 9 explain 80%). The largest component (21%) is the jet stream: `upper_wind_max_kmh` and the 8, 10 and 12 km winds load on it almost equally (pairwise similarity 0.97 to 1.00), so they act as one feature. The second (18%) is the pad and temperature (pad latitude and longitude, similarity -1.00). PCA also found two near-duplicates the correlation scan missed ([§7.6](#76-features-that-add-no-information)).
+
+**Signal: the main structure in the data is unrelated to delays.**
+
+| Component | Variance | Mainly | Delay AUC |
+|---|---|---|---|
+| PC1 | 21% | Jet-stream winds | 0.50 |
+| PC2 | 18% | Pad, temperature | 0.47 |
+| PC3 | 10% | Days since the previous launch | 0.45 |
+| PC4 | 8% | Surface wind (+ launch gap) | 0.58 |
+| PC5 | 6% | Cloud cover vs target moves and target-time weather | 0.41 |
+| PC6 | 6% | Cloud cover at both times | 0.50 |
+
+Only PC4 and PC5 show a hint, and they are built from the same features [§7.5](#75-features-vs-delay) flagged (surface wind, schedule).
+
+**Combined, the features do not predict delays.** Logistic regression, time-ordered 5-fold CV (always trained on earlier launches than it is tested on):
+
+| Inputs | ROC-AUC |
+|---|---|
+| First 2 / 5 / 10 / 13 components | 0.47 / 0.50 / 0.50 / 0.50 |
+| All 21 features | 0.50 |
+| The 4 features known a week ahead (`days_since_prev_spacex`, `target_moves_before_baseline`, `target_wind_speed_10m`, `target_cloud_cover`) | 0.44 |
+
+The weak single-feature hints do not hold up when predicting later launches. Together with the XGBoost and RandomForest results ([`MODELING.md`](MODELING.md)), this points to the features, not the model type: the current data carries no delay signal that is stable over time.
+
+### 7.8 Recommendations
 
 These are suggestions; changing the model's feature list is a team decision.
 
-1. **Account for the time trend.** Delays fell from about 30% to about 10% after 2024. Without a feature for it (or training on recent launches only), the model learns an outdated delay rate.
-2. **Try the schedule features** `target_moves_before_baseline` and `days_since_prev_spacex` as model inputs. They are cheap, use data we already have, and are known a week ahead.
-3. **Use surface wind at the target time** rather than at liftoff, if the forecast question is settled ([`MODELING.md`](MODELING.md) §3).
-4. **Consider dropping `payload_mass_kg` and `upper_wind_max_kmh`.** Neither shows a relationship with delays, and under the missing-data policy each one removes 20 labelled launches from training.
-5. **Never use** the columns in [§7.6](#76-features-that-add-no-information) as inputs.
+1. **Remove the redundant columns** in [§7.6](#76-features-that-add-no-information) from any feature list: keep at most one jet-stream wind, one launch-gap feature and one temperature.
+2. **Consider dropping `payload_mass_kg` and `upper_wind_max_kmh`.** Neither shows a relationship with delays (single-feature AUC 0.50 to 0.52, PC1 AUC 0.50), and under the missing-data policy each removes 20 labelled launches from training.
+3. **Look for new information rather than more of the same.** The schedule and target-time weather features gave weak single-feature hints ([§7.5](#75-features-vs-delay)) but no predictive value in time-ordered CV ([§7.7](#77-pca-check)). Unused LL2 fields are the next candidates: `probability` (published weather-go percentage), `weather_concerns`, mission type, and launch window length.
+4. **Account for the change after 2024.** Delays fell from about 30% to about 10%. A linear time feature did not help in CV, so training on recent launches only is the option to test.
 
-### 7.8 Discrepancy between the two processed tables
+### 7.9 Discrepancy between the two processed tables
 
 Two scripts produce different tables from the same raw files. This report and the models use the feature builder's table.
 
@@ -411,7 +440,7 @@ Two scripts produce different tables from the same raw files. This report and th
 
 Neither script reads the other's output.
 
-### 7.9 Still to document
+### 7.10 Still to document
 
 Documentation for the physics data has not been added to this file yet.
 
