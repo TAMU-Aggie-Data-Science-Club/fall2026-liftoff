@@ -9,6 +9,9 @@ from pathlib import Path
 
 import numpy as np
 import requests
+import truststore
+
+truststore.inject_into_ssl()
 
 
 BASE_URL = "https://archive-api.open-meteo.com/v1/archive"
@@ -31,6 +34,12 @@ PREFERRED_TOP_M = 20_000
 UPPER_WIND_HEIGHTS_M = list(range(2_000, 30_001, 2_000))
 MS_TO_KMH = 3.6
 IGRA_MISSING = -9999
+# Soundings with corrupted wind levels (DATA.md §9). A launch whose chosen sounding is
+# one of these gets blank upper-air winds instead of the bad values (PM decision 2026-11-17).
+CORRUPTED_SOUNDINGS = {
+    ("USM00072393", "2024-10-30T12:00:00+00:00"),  # Vandenberg AFB
+    ("USM00072393", "2024-12-05T00:00:00+00:00"),  # Vandenberg AFB
+}
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 IGRA_DIR = PROJECT_ROOT / "data" / "raw" / "igra"
@@ -292,7 +301,11 @@ def main():
         soundings = read_igra_soundings(station, launch_times)
         print(f"Station {station}: {len(soundings)} soundings near {len(rows)} launches")
         for row, launch_time in zip(rows, launch_times):
-            row.update(fetch_upper_winds(launch_time, soundings))
+            winds = fetch_upper_winds(launch_time, soundings)
+            if (station, winds.get("upper_wind_sounding_time")) in CORRUPTED_SOUNDINGS:
+                print(f"Upper winds left blank for launch {row['launch_id']}: corrupted sounding")
+                winds = {}
+            row.update(winds)
 
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
 

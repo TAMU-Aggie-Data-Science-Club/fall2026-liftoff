@@ -4,9 +4,9 @@
 
 ## Project goal
 
-Liftoff builds a mission-control-style dashboard that predicts rocket launch success and delays from historical launch data, weather, rocket type, and site information. It also visualizes rocket trajectories using physics-based equations, comparing expected flight paths against real launch behavior.
+Liftoff builds a mission-control-style dashboard that predicts whether a rocket launch goes up on time or is delayed, from historical launch data, weather, rocket type, and site information. It also visualizes rocket trajectories using physics-based equations, comparing expected flight paths against real launch behavior.
 
-A prediction model for launch outcome (success / delay) given pre-launch features.
+A prediction model for launch outcome (on time / delayed) given pre-launch features.
 
 A trajectory visualizer grounded in real physics (ballistic → simple gravity turn), so predictions and paths sit side-by-side in one dashboard.
 
@@ -16,7 +16,7 @@ We will have three subteams of 2-3 members. Members can express preferences, sug
 
 | Subteam | Semester responsibilities |
 | --- | --- |
-| Data Engineering & ML | Ingestion pipelines for Launch Library 2 and NASA APIs, feature engineering, XGBoost training for classification and delay regression, cross-validation, and error analysis. |
+| Data Engineering & ML | Ingestion pipelines for Launch Library 2 and NASA APIs, feature engineering, XGBoost training for on time vs delayed classification, cross-validation, and error analysis. |
 | Physics & Trajectory Modeling | Differential equations setup using scipy.integrate.solve_ivp, 2D ballistic and gravity-turn flight simulation, trajectory coordinate exports, and numerical sanity checks against telemetry |
 | Dashboard & Integration | Streamlit application layout, Plotly visual components, mission-control styling, user parameter controls, and end-to-end integration of ML model predictions with physics plots. |
 
@@ -44,7 +44,7 @@ They will take place virtually in the Project Sync voice channel on the Liftoff 
 
 We will begin with:
 
-Launch Library 2 API - provides structured data on launches from all providers (modern and historical), allowing us to train models to predict launch success and delay hours
+Launch Library 2 API - provides structured data on launches from all providers (modern and historical), allowing us to train a model to predict launch delays
 
 NASA Space Shuttle Mission Data (NASA Open Data) - expands the dataset to predict launches outside of SpaceX flights, allows the user to benchmark modern flights against historical data
 
@@ -62,11 +62,11 @@ Read through the responsibilities of each subteam and DM a.bisaria on Discord wi
 
 | # | Deliverable | Description | Owner (role) | Target |
 |---|-------------|-------------|--------------|--------|
-| 1 | Project scoping | Pick programs to cover (SpaceX + one historical). Define "success" canonically. Define what a "delay" means. | PM | Week 1 |
+| 1 | Project scoping | Pick programs to cover (SpaceX + one historical). Define "success" canonically. Define what a "delay" means. Redefined 2026-11-17: "success" now means launched on time; a launch is delayed if it lifts off more than 3 days after its target for SpaceX, or more than 7 days for NASA and other providers (see MODELING.md §2). | PM | Week 1 |
 | 2 | Data ingestion | Reproducible fetchers for Launch Library 2 API + NASA Open Data + weather. LL2 replaced the SpaceX community API, which was archived and unreachable. Documented in [`DATA.md`](DATA.md). | Members | Weeks 1–2 |
 | 3 | EDA | Distribution of outcomes, delays, launch cadence over time, payload mass distributions. | Members | Week 2 |
 | 4 | Feature engineering | Rocket family, payload mass, site, weather at launch time, days since previous launch of the same core. | Members | Weeks 3–4 |
-| 5 | Outcome + delay models | XGBoost classifier for success; XGBoost regressor for delay hours. Time-based CV. | Members | Weeks 4–5 |
+| 5 | Outcome + delay models | One XGBoost classifier for on time vs delayed. Time-based CV. Changed 2026-11-17: the failure class and the delay-hours regressor were dropped, because failures were too rare (15 of 743) and the team chose to predict schedule slips. | Members | Weeks 4–5 |
 | 6 | Trajectory physics module | 2D ballistic → simple gravity turn, ODE-integrated. Compare against reported apogee/downrange for at least three real launches. | Members | Weeks 5–6 |
 | 7 | Streamlit dashboard | Launch explorer, per-launch prediction breakdown, trajectory plot with predicted vs. actual overlays. | Members + PM | Weeks 6–7 |
 | 8 | Handoff & retro | Reproducibility check, short writeup, lessons learned. | PM | Week 8 |
