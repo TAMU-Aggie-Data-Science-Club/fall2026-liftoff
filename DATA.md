@@ -452,7 +452,38 @@ Two scripts produce different tables from the same raw files. This report and th
 
 Neither script reads the other's output.
 
-### 7.10 Still to document
+### 7.10 Weather-go forecasts (checked 2026-11-18)
+
+Research only (one-off scripts, not in the repo); nothing here is a model input yet. The question: does the published launch-weather forecast (the 45th Weather Squadron's "probability of GO") predict delays?
+
+**LL2's stored fields: not used.** LL2's detailed launch data has `probability` (weather-go %) and `weather_concerns` (the weather rules at risk, e.g. "Cumulus Cloud Rule", "Liftoff Winds"). `fetch_spacex.py` does not save them. A one-off fetch (2026-11-18) found:
+
+| Field | Labelled launches with a value | Relationship with delays |
+|---|---|---|
+| `probability` | 237 of 367 (53 delayed) | None: median 90% for both on-time and delayed launches, AUC 0.52 |
+| `weather_concerns` | 142 of 367 | Backwards: launches with concerns were delayed *less* often (17% vs 25%) |
+
+LL2 keeps only the **latest** value, which is the forecast for the day the rocket actually flew. For a delayed launch, that forecast was made after the delay, so it describes the outcome instead of predicting it. **Decision (2026-11-18): do not save or use these two fields.**
+
+**Weather-go % in the schedule notes: a real signal, but only close to launch.** The notes in `spacex_launch_updates.csv` include time-stamped forecast updates, e.g. "Updated launch weather, 55% GO", "Weather 80%", "Updating Weather POG to 40%". 547 notes on 343 launches give a percentage (parsed from notes that mention weather, POG or "% GO"). They are posted a median of 1.8 days before liftoff and rarely more than 5 days before.
+
+To avoid leakage, the value used for a launch is the latest one posted **before the baseline target and before any note moved that target**: the forecast as it stood before anyone knew the launch would slip.
+
+| When the value is read | Labelled launches | Delays | Median GO%, on time / delayed | AUC (lower GO% → delay) |
+|---|---|---|---|---|
+| By the baseline note (the week-ahead model's time) | 9 | 6 | 85 / 80 | too few |
+| Before the baseline target and before any slip | **132** | 21 | **80 / 50** | **0.67** (95% interval 0.52 to 0.82) |
+| Latest before actual liftoff (leaks the outcome, for comparison) | 204 | 45 | 85 / 85 | 0.52 |
+
+- **Stable over time,** unlike every other feature in §7.5: AUC 0.66 for 2021-23 (59 launches, 14 delays) and 0.68 for 2024-26 (73 launches, 7 delays).
+- **Easy to read:** with a forecast under 50% GO, 38% of launches were delayed (10 of 26). At 50% or above, 10% were (11 of 106). Under 70%: 28% vs 9%.
+- **Not available a week ahead.** The forecast comes a median of 1.4 days before the target, so it cannot feed the week-ahead delay model ([`MODELING.md`](MODELING.md) §2). It suits a short-range prediction made a day or two before launch.
+- **Fitted models could not be judged.** Logistic regressions trained only on earlier launches (GO% alone, with target-time weather, or with the schedule features) scored ROC-AUC 0.57 to 0.69 on the later 82 launches, but those hold only 9 delays, so every interval spans roughly 0.35 to 0.9. None beat reading GO% directly.
+- **Coverage depends on LL2's volunteer editors** posting a forecast before the target (132 of 367 labelled launches), so the covered launches may not be typical.
+
+**Decision (2026-11-18):** no model change for now. Propose a short-range indicator (latest pre-launch forecast under 50% GO → delays historically about 4× more common) to the dashboard team ([§10](#10-open-questions-for-the-pm)), and revisit a fitted short-range model once more delays have a forecast.
+
+### 7.11 Still to document
 
 Documentation for the physics data has not been added to this file yet.
 
@@ -536,9 +567,12 @@ Not examined yet: four other soundings with 1 to 4 spike levels each (Cape Kenne
 
 ## 10. Open questions for the PM
 
-No open questions right now. Add new ones here as they come up.
+- **Short-range weather indicator (for the dashboard team):** show the latest LL2 weather-go forecast before launch, flagged when it is under 50% GO (delays were about 4× more common: 38% vs 10%, [§7.10](#710-weather-go-forecasts-checked-2026-11-18))? The data side can provide the parsed value; how and whether to show it is the dashboard team's call.
 
 **Resolved (2026-11-18):**
+
+- **Forecast weather (option C):** train on observed weather now; add a forecast archive (e.g. Open-Meteo's Previous Runs, from 2024) later. That archive will still need adding to the source register when adopted.
+- **LL2 `probability` and `weather_concerns`:** not saved or used; LL2 stores the final-day value, which leaks the outcome ([§7.10](#710-weather-go-forecasts-checked-2026-11-18)).
 
 - **Probability calibration:** the raw delay probabilities averaged 0.33 to 0.50 against an actual 2025-26 rate of 0.11 ([§7.8](#78-recommendations)). They are now calibrated with Platt scaling fitted on the last 12 months ([`MODELING.md`](MODELING.md) §5.1).
 - **Placeholder and ratio columns:** `high_altitude_wind_assumed`, `wind_speed_ratio` and `payload_ratio` were removed ([§7.2](#72-feature-table-columns)).
