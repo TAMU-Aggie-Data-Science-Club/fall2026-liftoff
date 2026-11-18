@@ -38,7 +38,7 @@ Decided 2026-11-17:
 - **A missing number the model uses:** the launch is **left out of training and evaluation**. A launch cannot be modelled without the numbers it needs. Only the model's numeric inputs count (`NUMERIC_FEATURES` in `train_model.py`, `RF_NUMERIC_FEATURES` for the RandomForest). A gap in a column the model does not use, such as `payload_ratio` or a fixed-height wind, does not remove the launch.
 - **Never fill a missing number** with 0 or any other value. Keep it as `null` (JSON `null` / pandas `NaN`).
 - **The pipeline keeps every row.** The fetchers and `build_features.py` do not drop launches; the drop happens when the models load the data (`usable_launches()` in `train_model.py`), and the scripts print how many launches were left out and why. That way a gap that gets filled later (for example, NOAA publishing a late sounding) brings the launch back on the next fetch.
-- Which columns are model inputs is set by the feature list, which the EDA ([§7.7](#77-delay-analysis-not-done)) may change. The rule follows that list automatically.
+- Which columns are model inputs is set by the feature list, which the EDA ([§7.7](#77-recommendations)) may change. The rule follows that list automatically.
 
 ---
 
@@ -259,27 +259,25 @@ Because `data/` is git-ignored, nobody gets `gcat_launch.tsv` or the IGRA2 zips 
 
 ## 7. EDA report: SpaceX launch feature table
 
-> **Snapshot from 2026-10-31, kept for reference.** It analyses `mission_success`, which is **no longer the model target**: the model now predicts on time vs delayed ([`MODELING.md`](MODELING.md) §2). Counts are from the 743-launch fetch; the 2026-11-17 fetch has 746. An EDA on the delay label is still to do ([§7.7](#77-delay-analysis-not-done)).
+Produced by `python src/data/eda.py` (run 2026-11-17 on the 746-launch fetch). The target is the **delay label** `is_delayed` from `train_model.py` ([`MODELING.md`](MODELING.md) §2), so the EDA and the model use exactly the same labels. The script prints every table below. It writes nothing except a cache of the weather at each launch's target time (`data/interim/eda_target_weather.csv`, see [§7.5](#75-features-vs-delay)); delete the cache to re-fetch.
 
-Produced by `python src/data/eda.py` (checked 2026-10-31, after `payload_mass_kg` was switched to GCAT and the upper-air winds were added). It prints every table below and writes nothing to disk. SpaceX launches only (LL2 `lsp__id=121`), `net` from 2006-03-24 to 2026-10-31.
-
-> **Pipeline:** the input, `data/processed/ml_features.csv`, is written by `src/data/build_features.py`. A separate cleaning script, `src/data/clean_data.py`, writes a different table to `data/interim/cleaned_launches.csv`; see [§7.6](#76-discrepancy-between-the-two-processed-tables). Both are on `main`.
+> **Pipeline:** the input, `data/processed/ml_features.csv`, is written by `src/data/build_features.py`. A separate cleaning script, `src/data/clean_data.py`, writes a different table to `data/interim/cleaned_launches.csv`; see [§7.8](#78-discrepancy-between-the-two-processed-tables).
 
 ### 7.1 Pipeline schema
 
 ```
-LL2 API          --fetch_spacex.py-->  data/raw/spacex_launches.csv      (743 rows, 7 columns)
-                                       data/raw/spacex_launch_updates.csv (schedule notes; read by train_model.py, not joined here)
-Open-Meteo API   --fetch_weather.py--> data/raw/historical_weather.csv   (743 rows, 48 columns)
+LL2 API          --fetch_spacex.py-->  data/raw/spacex_launches.csv        (746 rows, 7 columns)
+                                       data/raw/spacex_launch_updates.csv  (schedule notes; read by train_model.py for the delay label)
+Open-Meteo API   --fetch_weather.py--> data/raw/historical_weather.csv     (746 rows, 48 columns)
 NOAA IGRA2       --/                   (upper-air winds are added by the same script)
                           |
                     build_features.py: left join on launch_id (one-to-one), check that
                     time and coordinates agree, add wind_speed_ratio and payload_ratio
                           v
-                 data/processed/ml_features.csv                          (743 rows, 56 columns)
+                 data/processed/ml_features.csv                            (746 rows, 56 columns)
 ```
 
-Each launch has at most one weather record: the hourly value closest to `net`, at the pad coordinates. Units are source units (see [§7.2](#72-feature-table-columns)). File names are listed in [§6](#6-storage-layout-data).
+Each launch has at most one weather record: the hourly value closest to the **actual** launch time (`net`), at the pad coordinates. Units are source units (see [§7.2](#72-feature-table-columns)). File names are listed in [§6](#6-storage-layout-data).
 
 ### 7.2 Feature table columns
 
@@ -287,121 +285,133 @@ Each launch has at most one weather record: the hourly value closest to `net`, a
 |---|---|---|---|
 | `launch_id` | string (UUID) | | LL2 `id`. Join key |
 | `rocket_type` | string | | LL2 `rocket.configuration.name` (e.g. `Falcon 9`) |
-| `payload_mass_kg` | float | kg | Payload delivered to orbit, from GCAT ([§8](#8-gcat-payload-mass)). Null for 26 launches (see [§7.4](#74-missing-values)) |
+| `payload_mass_kg` | float | kg | Payload delivered to orbit, from GCAT ([§8](#8-gcat-payload-mass)). See [§7.3](#73-missing-values) for gaps |
 | `launchpad_latitude`, `launchpad_longitude` | float | degrees, WGS84 | LL2 `pad`. 7 distinct pad coordinates |
 | `launch_timestamp_utc` | string | ISO 8601, UTC | LL2 `net` (latest value, not the original schedule) |
-| `mission_success` | boolean | | Launch outcome; the target of this snapshot, **no longer the model target**. The delay label `is_delayed` is computed in `train_model.py`, not stored in this table. `True` = LL2 status 3. `False` = status 4 (failure) or 7 (partial failure). Anything else is null in the fetcher |
-| `launch_time`, `latitude`, `longitude` | string / float | UTC / degrees | Copies of the launch time and pad coordinates, repeated by the weather file. Verified equal to the launch columns by the builder. Not used in the analysis |
+| `mission_success` | boolean | | Launch outcome. **Not the model target**; the delay label `is_delayed` is computed in `train_model.py`, not stored in this table. `True` = LL2 status 3. `False` = status 4 (failure) or 7 (partial failure) |
+| `launch_time`, `latitude`, `longitude` | string / float | UTC / degrees | Copies of the launch time and pad coordinates, repeated by the weather file. Verified equal to the launch columns by the builder |
 | `weather_time` | string | ISO 8601, UTC | Hourly weather record used |
-| `temperature_2m` | float | °C | Air temperature at 2 m |
-| `wind_speed_10m` | float | **km/h** | Not converted. See [§5](#5-unit-conversions) |
+| `temperature_2m` | float | °C | Air temperature at 2 m, at the actual launch time |
+| `wind_speed_10m` | float | **km/h** | Surface wind at the actual launch time. See [§5](#5-unit-conversions) |
 | `precipitation` | float | mm | Over the preceding hour |
 | `cloud_cover` | float | % | |
-| `weather_source` | string | | `era5_archive` or `historical_forecast`: which Open-Meteo endpoint supplied the surface weather ([§4.5](#45-data-availability)). All 743 rows are `era5_archive` |
-| `high_altitude_wind_assumed` | float | **km/h** | **Not a measurement.** The fetcher copies `wind_speed_10m`, so it is identical on every row. Kept so `build_features.py` and `clean_data.py` keep working. The real winds are the `upper_wind_*` columns below |
-| `upper_wind_station`, `upper_wind_station_distance_km` | string / float | IGRA2 id / km | Radiosonde station used for the pad and its distance from the pad (11 to 35 km, see [§9](#9-high-altitude-winds-noaa-igra2-radiosondes)). See [§9](#9-high-altitude-winds-noaa-igra2-radiosondes) |
+| `weather_source` | string | | `era5_archive` or `historical_forecast` ([§4.5](#45-data-availability)). All 746 rows are `era5_archive` |
+| `high_altitude_wind_assumed` | float | **km/h** | **Not a measurement.** A copy of `wind_speed_10m`, kept so `build_features.py` and `clean_data.py` keep working. The real upper winds are the `upper_wind_*` columns |
+| `upper_wind_station`, `upper_wind_station_distance_km` | string / float | IGRA2 id / km | Radiosonde station used for the pad and its distance from the pad (11 to 35 km, see [§9](#9-high-altitude-winds-noaa-igra2-radiosondes)) |
 | `upper_wind_sounding_time`, `upper_wind_sounding_offset_h` | string / float | ISO 8601 UTC / hours | The balloon launch used, and how far it is from the rocket launch (negative = balloon earlier). At most 12 h |
 | `upper_wind_top_km` | float | km | Highest height the balloon reported a wind at |
 | `upper_wind_max_kmh`, `upper_wind_max_alt_km` | float | **km/h** / km | Peak wind at or below 30 km and the height where it occurred (usually the jet stream) |
-| `upper_wind_speed_<h>km_kmh`, `upper_wind_dir_<h>km_deg` | float | **km/h** / degrees | Wind speed and the direction it blows **from** (0 = north, 90 = east), at `<h>` = 2, 4, ... 30 km above sea level. 30 columns. Blank where the balloon did not reach `<h>` |
-| `wind_speed_ratio` | float | ratio | `high_altitude_wind_assumed / wind_speed_10m`. **Equals 1 on every row**, because of the placeholder above. Carries no information yet. Not yet switched to a real upper-air wind |
-| `payload_ratio` | float | ratio | `payload_mass_kg / max_payload_capacity_kg`. **Empty on every row**, because no rocket capacity column exists yet. Placeholder |
+| `upper_wind_speed_<h>km_kmh`, `upper_wind_dir_<h>km_deg` | float | **km/h** / degrees | Wind speed and the direction it blows **from** (0 = north, 90 = east), at `<h>` = 2, 4, ... 30 km above sea level. Blank where the balloon did not reach `<h>` |
+| `wind_speed_ratio` | float | ratio | `high_altitude_wind_assumed / wind_speed_10m`. **Equals 1 on every row** because of the placeholder above |
+| `payload_ratio` | float | ratio | `payload_mass_kg / max_payload_capacity_kg`. **Empty on every row**: no rocket capacity column exists |
 
-### 7.3 Summary statistics (feature table, 743 rows)
+### 7.3 Missing values
 
-Outcome: **728 successes, 15 failures** (2.0%). Every result below rests on 15 failures.
-
-| Column | n | Mean | Std | Min | Median | Max |
-|---|---|---|---|---|---|---|
-| `payload_mass_kg` | 717 | 12442.0 | 5462.0 | 20.0 | 15500.0 | 18940.0 |
-| `launchpad_latitude` | 743 | 30.304 | 3.399 | 9.048 | 28.562 | 34.632 |
-| `launchpad_longitude` | 743 | -92.248 | 28.315 | -120.611 | -80.604 | 167.743 |
-| `temperature_2m` (°C) | 743 | 20.186 | 6.003 | 4.800 | 20.800 | 34.500 |
-| `wind_speed_10m` (km/h) | 743 | 13.428 | 6.708 | 0.400 | 12.900 | 34.900 |
-| `precipitation` (mm) | 743 | 0.068 | 0.505 | 0.000 | 0.000 | 8.100 |
-| `cloud_cover` (%) | 743 | 50.166 | 40.759 | 0 | 45 | 100 |
-| `upper_wind_max_kmh` (km/h) | 705 | 127.3 | 51.8 | 24.1 | 118.4 | 494.6 |
-| `upper_wind_max_alt_km` (km) | 705 | 15.5 | 6.4 | 0.83 | 13.2 | 30.0 |
-| `upper_wind_speed_10km_kmh` (km/h) | 704 | 82.6 | 51.2 | 3.0 | 72.4 | 252.3 |
-| `upper_wind_speed_20km_kmh` (km/h) | 698 | 31.1 | 19.6 | 0.7 | 27.6 | 269.7 |
-| `upper_wind_speed_30km_kmh` (km/h) | 606 | 56.9 | 33.2 | 1.8 | 53.6 | 338.9 |
-
-The other `upper_wind_*` columns follow the same pattern (strongest near 12 km, weakest near 20 km); `eda.py` prints all of them. The largest values (400 km/h at 6 km, 423.6 km/h at 28 km, 494.6 km/h for the peak) are **bad data**, not real winds: they come from two corrupted Vandenberg soundings, see [§9](#9-high-altitude-winds-noaa-igra2-radiosondes). They are still in the table and the statistics above. Without those two launches the largest value anywhere is about 281 km/h, at 12 km.
-
-Success rate by rocket type:
-
-| `rocket_type` | Launches | Failures | Success rate |
-|---|---|---|---|
-| Falcon 9 | 701 | 4 | 0.994 |
-| Starship | 14 | 5 | 0.643 |
-| Falcon Heavy | 14 | 0 | 1.000 |
-| Starship Prototype | 9 | 3 | 0.667 |
-| Falcon 1 | 5 | 3 | 0.400 |
-
-### 7.4 Missing values
-
-| Column(s) | Missing | Cause |
+| Column(s) | Missing (of 746) | Cause |
 |---|---|---|
-| `payload_mass_kg` | **26 of 743 (3.5%)** | No GCAT mass: Starship and Starship Prototype (23, GCAT has no real payload value), the 2016 Falcon 9 pad explosion, the 2020 Crew Dragon abort test (GCAT lists 0, stored as null), and the newest launch, not yet in GCAT. See [§8](#8-gcat-payload-mass) |
-| `payload_ratio` | **743 of 743 (100%)** | Placeholder: needs a rocket capacity column that does not exist yet |
-| `upper_wind_sounding_time`, `_offset_h`, `upper_wind_top_km`, `upper_wind_max_kmh`, `upper_wind_max_alt_km` | **38 of 743 (5.1%)** | No radiosonde within 12 h. 28 are 2026 launches from February to May (23 of them in April and May: Cape Kennedy has 1 sounding in April and none in May, Vandenberg none in either month), plus the 2026-10-31 launch, which has no sounding published yet. The other 9 are 2 in August 2025, 2 in July 2022, 2 in 2008, and one each in 2009, 2013 and 2021. See [§9](#9-high-altitude-winds-noaa-igra2-radiosondes) |
-| `upper_wind_speed_<h>km_kmh`, `upper_wind_dir_<h>km_deg` | **39 of 743 at 2 km, rising to 137 (18.4%) at 30 km** | The 38 above, plus balloons that burst before reaching `<h>`. Counts per height are in the `eda.py` output |
-| All other columns | 0 | Weather is now present for every launch |
+| `payload_mass_kg` | 29 | No GCAT mass: Starship and Starship Prototype (GCAT has no real payload value), the 2016 pad explosion, the 2020 Crew Dragon abort test, and the newest launches not yet in GCAT ([§8](#8-gcat-payload-mass)) |
+| `upper_wind_max_kmh` and the other per-sounding columns | 39 | No radiosonde within 12 h (mostly 2026 launches in months IGRA2 has not published), plus the 2 launches blanked for corrupted soundings ([§9.2](#92-corrupted-soundings-decided)) |
+| `upper_wind_speed_<h>km_kmh` | 40 at 2 km, rising to 137 at 30 km | The above, plus balloons that burst before reaching `<h>` |
+| `payload_ratio` | 746 | Placeholder (see above) |
+| All other columns | 0 | |
 
-The left join keeps launches with a missing value and leaves the columns empty, as the [§2](#2-missing-data-policy) interim rule asks (do not drop rows). The two newest launches that used to have no weather now have it; the 2026-10-31 launch (`57ce0a39-d035-4f16-a418-bd6108f78199`) still has no upper-air winds.
+The table keeps every launch; under the missing-data policy the **models** leave out launches missing a numeric input ([§2](#2-missing-data-policy)).
 
-### 7.5 Correlation with launch outcome
+### 7.4 Delay labels and delay rates
 
-Pearson correlation between each numeric feature and `mission_success` coded 0/1 (point-biserial). Computed on launches that have a value for the feature. The duplicate `latitude` and `longitude` columns are left out.
+367 of the 745 launches (Amos-6 excluded) have a delay label; 80 (22%) were delayed (more than 3 days past the baseline target). Labels start in December 2020, when LL2's schedule notes begin ([`MODELING.md`](MODELING.md) §2).
 
-| Feature | n | Failures in n | Pearson r |
+**Delays are becoming rarer.** This is the strongest pattern in the data:
+
+| Year | Labelled | Delayed | Delay rate |
 |---|---|---|---|
-| `launchpad_latitude` | 743 | 15 | 0.279 |
-| `launchpad_longitude` | 743 | 15 | -0.253 |
-| `wind_speed_10m` | 743 | 15 | -0.097 |
-| `high_altitude_wind_assumed` | 743 | 15 | -0.097 (identical copy of the above) |
-| `temperature_2m` | 743 | 15 | -0.068 |
-| `precipitation` | 743 | 15 | 0.019 |
-| `cloud_cover` | 743 | 15 | 0.012 |
-| `payload_mass_kg` | 717 | 6 | 0.107 |
-| `upper_wind_max_kmh` | 705 | 13 | 0.014 |
-| `upper_wind_speed_10km_kmh` | 704 | 13 | 0.018 |
-| `upper_wind_speed_20km_kmh` | 698 | 13 | 0.052 |
-| `upper_wind_speed_30km_kmh` | 606 | 11 | 0.027 |
-| `upper_wind_station_distance_km` | 743 | 15 | -0.436 |
-| `wind_speed_ratio` | 743 | 15 | undefined (constant 1) |
-| `payload_ratio` | 0 | 0 | undefined (no values) |
+| 2021 | 13 | 4 | 31% |
+| 2022 | 40 | 15 | 38% |
+| 2023 | 66 | 16 | 24% |
+| 2024 | 87 | 27 | 31% |
+| 2025 | 78 | 10 | 13% |
+| 2026 | 82 | 8 | 10% |
+
+(2020: 1 launch, on time.) A model trained on older launches will over-predict delays for recent ones, and the newest launches, which form the test set, have few delays.
+
+By rocket and pad there is little difference: Falcon 9 22% (342 launches), Falcon Heavy 25% (8), Starship 13% (15); Cape Canaveral SLC-40 22% (157), Vandenberg SLC-4E 24% (130), Kennedy LC-39A 17% (63). Starbase has too few labelled launches (17) to judge. By target month the rate ranges from 15% (June) to 32% (July) with 22 to 39 launches per month, which is within chance.
+
+### 7.5 Features vs delay
+
+For each feature: the median for on-time and delayed launches, and the **single-feature AUC**, the chance that a random delayed launch has a higher value than a random on-time one. 0.5 means no signal; the further from 0.5 in either direction, the more signal. With 80 delays, an AUC within about 0.43 to 0.57 is consistent with chance.
+
+**Current model inputs and launch-time weather** (only known at liftoff):
+
+| Feature | n | Median on time | Median delayed | AUC |
+|---|---|---|---|---|
+| `wind_speed_10m` (km/h) | 367 | 12.1 | 15.4 | **0.59** |
+| `payload_mass_kg` | 347 | 15,000 | 15,750 | 0.52 |
+| `upper_wind_max_kmh` | 347 | 114.8 | 118.4 | 0.50 |
+| `upper_wind_speed_10km_kmh` / `12km` | 346 | 74.0 / 93.6 | 68.5 / 86.4 | 0.48 / 0.48 |
+| `temperature_2m`, `cloud_cover`, `precipitation` | 367 | | | 0.48 to 0.49 |
+
+**Schedule features** (built in `eda.py`, all known when the baseline note was posted, about a week before launch):
+
+| Feature | What it is | n | Median on time | Median delayed | AUC |
+|---|---|---|---|---|---|
+| `days_since_prev_spacex` | Days from SpaceX's latest launch before the baseline note to the target time | 367 | 10.9 | 9.4 | **0.43** (shorter gap → more delays) |
+| `target_moves_before_baseline` | Times the announced target had already changed before the baseline | 367 | 0 | 1 | **0.56** |
+| `days_since_prev_pad` | Same, for the same pad | 365 | 13.5 | 13.9 | 0.47 |
+| `target_month` | Month of the target | 367 | 7 | 7 | 0.53 |
+| `target_hour_utc` | Hour of the target, when the note gave one | 81 | 13 | 11 | 0.51 |
+
+**Weather at the baseline target time** (`target_*`, fetched by `eda.py` from the same Open-Meteo archive at the pad and target time; observed weather, not a forecast):
+
+| Feature | n | Median on time | Median delayed | AUC |
+|---|---|---|---|---|
+| `target_wind_speed_10m` (km/h) | 367 | 11.2 | 12.3 | **0.56** |
+| `target_cloud_cover` (%) | 367 | 56 | 74 | 0.53 |
+| `target_temperature_2m`, `target_precipitation` | 367 | | | 0.48 / 0.52 |
 
 How to read this:
 
-- **Weather is weakly related to the outcome.** All four weather features have |r| below 0.10. With 15 failures, that is within what chance could produce, so these numbers are not evidence either way.
-- **Latitude and longitude are proxies for the rocket program, not geography.** The largest values (|r| 0.25 to 0.28) coincide with Falcon 1 flying from Kwajalein (9.05, 167.74; 3 failures in 5 launches) and Starship and its prototypes flying from the Texas pad near 26.0, -97.2 (8 failures in 23 launches). Do not read them as "pad location causes failure".
-- **Payload mass is weakly related to the outcome** (r = 0.107, 6 failures among 717 launches). It also tracks the rocket: Falcon 1 carries tens of kg and Falcon 9 about 15 t, so it largely reflects which rocket flew, not payload weight on its own. The Starship flights have no value, so the Starship failures are not in this number.
-- **Upper-air winds show no relationship with the outcome.** Every `upper_wind_*` speed and direction column has |r| below 0.06, and only 11 to 13 failures have a value. That is within chance, so it is not evidence either way. The `upper_wind_*` rows above are a sample; `eda.py` prints all 30 columns.
-- **`upper_wind_station_distance_km` (r = -0.436) is a pad proxy, not a cause.** The distance is nearly fixed per pad (Cape 11 to 17 km, Vandenberg 14 km, Brownsville 28 km, Kwajalein 35 km), so it only identifies the pad, and with it the rocket program. Do not use it as a feature.
-- **`wind_speed_ratio` and `payload_ratio` cannot be analysed** yet. `wind_speed_ratio` needs to be pointed at a real upper-air wind instead of the placeholder, and `payload_ratio` needs a rocket capacity column.
+- **No single feature is strongly related to delays.** The best are around 0.56 to 0.59, at or just past what chance could produce.
+- **Surface wind is the most consistent signal.** It points the same way at both times: delayed launches had windier conditions at the target time and at liftoff. The launch-time value (0.59) cannot be used to predict a week ahead; the target-time value (0.56) can, given a forecast.
+- **The schedule gives weak hints.** Launches whose target had already moved, and launches scheduled soon after another SpaceX launch, were delayed somewhat more often (AUC 0.56 and 0.43, at the edge of chance). Worth testing in the model, not yet proven.
+- **Payload mass and the upper-air winds show no relationship with delays** (AUC 0.48 to 0.52).
+- `target_hour_utc` is known for only 81 launches, because most baseline notes give a day without a time.
 
-### 7.6 Discrepancy between the two processed tables
+### 7.6 Features that add no information
 
-Two scripts on `main` produce different tables from the same raw files. This report uses the feature builder's table.
+| Column(s) | Why |
+|---|---|
+| `payload_ratio` | Empty |
+| `wind_speed_ratio` | Constant (always 1) |
+| `high_altitude_wind_assumed` | Identical to `wind_speed_10m` |
+| `launch_time`, `latitude`, `longitude` | Copies of `launch_timestamp_utc`, `launchpad_latitude`, `launchpad_longitude` |
+| `launchpad_latitude`, `launchpad_longitude`, `upper_wind_station_distance_km` | Fixed for each pad, so they only identify the pad (use a pad category instead if the pad is wanted) |
+| `upper_wind_speed_8km_kmh` ~ `upper_wind_speed_10km_kmh` (r = 0.91), `upper_wind_max_kmh` ~ `upper_wind_speed_12km_kmh` (r = 0.91) | Near-duplicates: keep one of each pair at most |
 
-| | Feature builder (`build_features.py`): **used here** | Cleaner (`clean_data.py`) |
+### 7.7 Recommendations
+
+These are suggestions; changing the model's feature list is a team decision.
+
+1. **Account for the time trend.** Delays fell from about 30% to about 10% after 2024. Without a feature for it (or training on recent launches only), the model learns an outdated delay rate.
+2. **Try the schedule features** `target_moves_before_baseline` and `days_since_prev_spacex` as model inputs. They are cheap, use data we already have, and are known a week ahead.
+3. **Use surface wind at the target time** rather than at liftoff, if the forecast question is settled ([`MODELING.md`](MODELING.md) §3).
+4. **Consider dropping `payload_mass_kg` and `upper_wind_max_kmh`.** Neither shows a relationship with delays, and under the missing-data policy each one removes 20 labelled launches from training.
+5. **Never use** the columns in [§7.6](#76-features-that-add-no-information) as inputs.
+
+### 7.8 Discrepancy between the two processed tables
+
+Two scripts produce different tables from the same raw files. This report and the models use the feature builder's table.
+
+| | Feature builder (`build_features.py`): **used** | Cleaner (`clean_data.py`) |
 |---|---|---|
 | Output file | `data/processed/ml_features.csv` | `data/interim/cleaned_launches.csv` |
-| Rows | 743 (left join keeps launches with no weather) | 743 (inner join, but every launch now has weather, so none are lost. It would still drop any launch without a weather record; before the weather fix it lost two) |
-| Columns | 56 | 51 |
-| Wind units | km/h, unconverted | Surface wind and `high_altitude_wind_assumed` in m/s (÷ 3.6). The `upper_wind_*` columns pass through unchanged in km/h, which the column names still say |
+| Rows | 746 (left join keeps launches with no weather) | Inner join, and drops any row missing a required value, which conflicts with the [§2](#2-missing-data-policy) rule that the pipeline keeps every row |
+| Wind units | km/h, unconverted | Surface wind and `high_altitude_wind_assumed` in m/s (÷ 3.6). The `upper_wind_*` columns pass through unchanged in km/h |
 | Column names | Source names (`wind_speed_10m`) | Unit suffixes (`wind_speed_10m_ms`, `temperature_2m_c`) |
 | Extra columns | `wind_speed_ratio`, `payload_ratio`, duplicate `launch_time` / `latitude` / `longitude` | None |
-| Dropped rows | None | Drops any row missing a required value, which conflicts with the [§2](#2-missing-data-policy) "do not drop rows" rule |
 
-Neither script reads the other's output. Correlation values match on either table (a change of unit does not alter Pearson r).
+Neither script reads the other's output.
 
-### 7.7 Delay analysis: not done
-
-The issue asks for correlations against launch delays. The delay definition now exists ([`MODELING.md`](MODELING.md) §2), and the 2026-11-17 fetch gives 362 labelled launches (80 delayed). The delay EDA has not been run yet: `eda.py` still analyses `mission_success`. Next step: point it at `is_delayed` and check which features carry no new information (constant, empty, duplicate or highly correlated columns).
-
-### 7.8 Still to document
+### 7.9 Still to document
 
 Documentation for the physics data has not been added to this file yet.
 
@@ -453,7 +463,7 @@ The `upper_wind_*` columns in `data/raw/historical_weather.csv` hold measured wi
 | Heights | Winds are interpolated to every 2 km from 2 to 30 km above sea level. Direction is interpolated through the east-west and north-south wind components, so a wind near north does not average to south. Heights above the balloon's top are left blank, never extrapolated |
 | Units | Speeds in **km/h** (m/s × 3.6), to match `wind_speed_10m`. Directions are the direction the wind blows from |
 
-**Coverage (checked 2026-10-31, 743 launches):** 705 have a sounding and 38 do not ([§7.4](#74-missing-values)). Balloons reach a median of 32 to 34 km at the three US stations and 26 km at Kwajalein (only 2 launches have a sounding there). Speeds were reported for 704 launches at 10 km, 698 at 20 km and 606 at 30 km.
+**Coverage (checked 2026-10-31, 743 launches):** 705 have a sounding and 38 do not (current counts in [§7.3](#73-missing-values)). Balloons reach a median of 32 to 34 km at the three US stations and 26 km at Kwajalein (only 2 launches have a sounding there). Speeds were reported for 704 launches at 10 km, 698 at 20 km and 606 at 30 km.
 
 **Cautions:**
 
@@ -478,7 +488,7 @@ IGRA2 is a NOAA NCEI product. Neither the IGRA2 readme nor the [NCEI product pag
 
 Under the missing-data policy ([§2](#2-missing-data-policy)), a blank `upper_wind_max_kmh` leaves the launch out of training for any model that uses it. Only the 2024-12-05 launch has a delay label, so the model loses one launch.
 
-The statistics in [§7](#7-eda-report-spacex-launch-feature-table) are from before this fix and still include the bad values.
+The EDA in [§7](#7-eda-report-spacex-launch-feature-table) was run after this fix.
 
 Not examined yet: four other soundings with 1 to 4 spike levels each (Cape Kennedy 2020-01-19 and 2023-03-02, Vandenberg 2026-01-25 and 2026-03-26). Some may be real wind shear.
 
