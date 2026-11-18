@@ -14,6 +14,11 @@ data/reference/tle/
 # Scratch planning files (see AGENTS.md) — never part of a PR.
 .planning/
 
+# --- Model outputs -------------------------------------------------------
+# Rebuilt by src/models/*.py from the git-ignored data, so never committed.
+models/
+reports/
+
 # --- Common noise ----------------------------------------------------------
 # OS / editor cruft
 .DS_Store
