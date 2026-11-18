@@ -34,11 +34,11 @@ The pickle holds a dict with `models` (`{"delay": {...}}`, one XGBoost `Booster`
 
 There is no delay field in the API, so `train_model.py` derives one from LL2 schedule notes saved in `data/raw/spacex_launch_updates.csv` (written by `fetch_spacex.py`).
 
-1. Keep notes that announce a schedule (keywords: *target, NET, delay, slip, moved, scheduled, recycle, revert*) and contain a date, for example "Now targeting Nov 05 at 02:35 UTC".
+1. Keep notes that announce a schedule and contain a full date (month and day), for example "Now targeting Nov 05 at 02:35 UTC". A note qualifies if it has a schedule keyword (*target, NET, delay, slip, moved, scheduled, recycle, revert*), or a launch-date phrase (*GO for, window, launch on, attempt, opportunity, launch time, T-0, confirmed, planned for, pushing to, moving to, back on, expected to*) as long as it does not cancel a date (*no longer, standing down, no launch, not in position*). Month-only notes such as "NET April" are not used, because they give no exact day.
 2. Parse the target date and time. If a note gives a day but no time, the whole day counts as on time. If it gives no year, the year is inferred from when the note was posted.
 3. **Baseline:** the latest target announced in a note posted **at least 7 days** before the actual launch.
 4. **Delayed:** the actual launch came more than the provider's threshold after the baseline: **72 hours (3 days) for SpaceX, 7 days for NASA and every other provider**. Otherwise it is **on time**, whatever happened after liftoff.
-5. Launches with no qualifying note have a missing label and are excluded from the delay model. On the 2026-11-17 fetch, 362 of 745 launches have a label (80 delayed, 22%), all from 2020-12-19 onward. After the missing-data policy (§3), 342 are usable with the `main` feature list (20 lack a payload mass) and 322 (72 delayed) once `upper_wind_max_kmh` is an input (20 more lack it).
+5. Launches with no qualifying note have a missing label and are excluded from the delay model. On the 2026-11-17 fetch, 367 of 745 launches have a label (80 delayed, 22%), all from 2020-12-19 onward. After the missing-data policy (§3), 327 (72 delayed) are usable once `upper_wind_max_kmh` is an input (20 lack a payload mass, 20 lack the upper wind). Most unlabelled launches since 2021 have only early notes with no date in the text ("Added launch.", "GO for launch."), which no parser can recover; a shorter baseline window would add launches but lose most of the delays, so it stays at 7 days.
 
 | Constant | Value | Meaning |
 |---|---|---|

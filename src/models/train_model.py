@@ -69,6 +69,18 @@ NUM_BOOST_ROUND = 200
 SCHEDULE_NOTE = re.compile(
     r"target|\bNET\b|delay|slip|moved|scheduled|recycl|revert", re.IGNORECASE
 )
+# Notes that name the launch date without those words, e.g. "GO for launch on June 18",
+# "Added launch window for February 16", "Next opportunity on April 19".
+LAUNCH_DATE_NOTE = re.compile(
+    r"\bgo for\b|\bwindow\b|launch(?:ing)? on|\battempt\b|opportunit|launch time|\bT-0\b|confirmed"
+    r"|planned for|pushing to|moving to|back on|expected to",
+    re.IGNORECASE,
+)
+# ...but not ones that cancel a date, e.g. "No longer listed for July 15",
+# "Standing down from the August 28 launch opportunities".
+NOT_A_TARGET = re.compile(
+    r"no longer|standing down|stand down|\bno launch\b|not in position", re.IGNORECASE
+)
 TARGET_DATE = re.compile(
     r"\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+"
     r"(\d{1,2})(?:st|nd|rd|th)?\b"
@@ -81,7 +93,11 @@ MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", 
 
 def parse_note_target(comment: str, created_on: pd.Timestamp) -> pd.Timestamp | None:
     """Return the launch target a note announces, or None if it gives no exact day."""
-    if not isinstance(comment, str) or not SCHEDULE_NOTE.search(comment):
+    if not isinstance(comment, str):
+        return None
+    if not SCHEDULE_NOTE.search(comment) and (
+        not LAUNCH_DATE_NOTE.search(comment) or NOT_A_TARGET.search(comment)
+    ):
         return None
     match = TARGET_DATE.search(comment)
     if not match:
