@@ -15,7 +15,7 @@ Look-up reference for the data Liftoff uses: where it comes from, what the field
 9. [High-altitude winds (NOAA IGRA2 radiosondes)](#9-high-altitude-winds-noaa-igra2-radiosondes)
 10. [Open questions for the PM](#10-open-questions-for-the-pm)
 
-> Status: only Launch Library 2, Open-Meteo, GCAT (payload mass only) and NOAA IGRA2 (upper-air winds only) are documented so far. The earlier SpaceX community API was dropped (archived and unreachable). NASA Space Shuttle data and CelesTrak / Space-Track TLEs (listed in [`DELIVERABLES.md`](DELIVERABLES.md)) will be added in later issues.
+> Status: only Launch Library 2, Open-Meteo, GCAT (payload mass only) and NOAA IGRA2 (upper-air winds only) are documented so far. The earlier SpaceX community API was dropped (archived and unreachable). LL2 covers every provider, but `fetch_spacex.py` requests **SpaceX launches only** (`lsp__id=121`), so the NASA / other-provider delay rule in [`MODELING.md`](MODELING.md) §2 has no launches to apply to yet. NASA Space Shuttle data and CelesTrak / Space-Track TLEs (listed in [`DELIVERABLES.md`](DELIVERABLES.md)) will be added in later issues.
 
 ---
 
@@ -23,10 +23,10 @@ Look-up reference for the data Liftoff uses: where it comes from, what the field
 
 | Source | Origin / URL | Access method | License | Sensitivity | Notes |
 |---|---|---|---|---|---|
-| Launch Library 2 (LL2) API | `https://ll.thespacedevs.com/2.3.0` ([docs](https://thespacedevs.com/llapi), by The Space Devs) | Public HTTPS GET, JSON, no auth (free tier) | Not stated on the API page: **TBD** | Public, no PII | Free tier is **15 unauthenticated requests per hour**. Covers all providers and historical launches, not just SpaceX. Replaces the SpaceX community API. |
-| Open-Meteo Historical Weather API | `https://archive-api.open-meteo.com/v1/archive` | Public HTTPS GET, JSON, no key (free tier) | CC BY 4.0, **non-commercial use only** on the free tier | Public, no PII | Attribution required. Backed by ERA5 / ERA5-Land reanalysis. Surface variables only: the archive endpoint returns nothing for pressure levels. `fetch_weather.py` falls back to `https://historical-forecast-api.open-meteo.com/v1/forecast` for launches the archive cannot serve yet. |
-| NOAA NCEI IGRA2 (Integrated Global Radiosonde Archive) | `https://www.ncei.noaa.gov/pub/data/igra/`. We download `data/data-por/<STATION>-data.txt.zip` | Plain HTTPS download of a zipped fixed-width text file per station (no API, no auth). Cached to `data/raw/igra/` | No license found in the IGRA2 readme; NOAA data is generally free to use: **TBD, confirm with a PM** | Public, no PII | **Source of the `upper_wind_*` columns**; see [§9](#9-high-altitude-winds-noaa-igra2-radiosondes). Measured balloon winds, about 2 soundings a day per station. Credit NOAA NCEI where shown. |
-| GCAT (General Catalog of Artificial Space Objects) | `https://planet4589.org/space/gcat/` by Jonathan McDowell. We download the launch log `https://planet4589.org/space/gcat/tsv/launch/launch.tsv` | Plain HTTPS download of a TSV file (no API, no auth). Cached to `data/raw/gcat_launch.tsv` | CC BY, per the GCAT site: **TBD, confirm with a PM** | Public, no PII | **Source of `payload_mass_kg` only**; see [§8](#8-gcat-payload-mass). Attribution required. Suggested wording: "data from GCAT (J. McDowell, planet4589.org/space/gcat)". |
+| Launch Library 2 (LL2) API | `https://ll.thespacedevs.com/2.3.0` ([docs](https://thespacedevs.com/llapi), by The Space Devs) | Public HTTPS GET, JSON, no auth (free tier) | No named licence. The Space Devs' terms: free to use in any way, attribution optional but encouraged ([§3.4](#34-licensing)) | Public, no PII | Free tier is **15 unauthenticated requests per hour**. Covers all providers and historical launches; we fetch SpaceX only. Also the source of the schedule notes (`updates`) behind the delay label. Replaces the SpaceX community API. |
+| Open-Meteo Historical Weather API | `https://archive-api.open-meteo.com/v1/archive` | Public HTTPS GET, JSON, no key (free tier) | CC BY 4.0. The free API is for **non-commercial use only** | Public, no PII | Attribution required: a "Weather data by Open-Meteo.com" link wherever the data is shown ([§4.6](#46-licensing-and-attribution)). Backed by ERA5 / ERA5-Land reanalysis. Surface variables only: the archive endpoint returns nothing for pressure levels. `fetch_weather.py` falls back to `https://historical-forecast-api.open-meteo.com/v1/forecast` for launches the archive cannot serve yet. |
+| NOAA NCEI IGRA2 (Integrated Global Radiosonde Archive) | `https://www.ncei.noaa.gov/pub/data/igra/`. We download `data/data-por/<STATION>-data.txt.zip` | Plain HTTPS download of a zipped fixed-width text file per station (no API, no auth). Cached to `data/raw/igra/` | No licence stated by NCEI; U.S. federal government data, provided without warranty ([§9.1](#91-license-and-attribution)) | Public, no PII | **Source of the `upper_wind_*` columns**; see [§9](#9-high-altitude-winds-noaa-igra2-radiosondes). Measured balloon winds, about 2 soundings a day per station. Credit NOAA NCEI where shown. |
+| GCAT (General Catalog of Artificial Space Objects) | `https://planet4589.org/space/gcat/` by Jonathan McDowell. We download the launch log `https://planet4589.org/space/gcat/tsv/launch/launch.tsv` | Plain HTTPS download of a TSV file (no API, no auth). Cached to `data/raw/gcat_launch.tsv` | CC BY 4.0 (stated on the GCAT site) | Public, no PII | **Source of `payload_mass_kg` only**; see [§8](#8-gcat-payload-mass). Citation required: "data from GCAT (J. McDowell, planet4589.org/space/gcat)". |
 
 ---
 
@@ -51,16 +51,17 @@ LL2 is a community-run launch database from The Space Devs. It covers launches f
 |---|---|---|
 | `GET /2.3.0/launches/` | Paginated list of all launches (past and upcoming) | Verified live |
 | `GET /2.3.0/launches/{id}/` | One launch (`id` is a UUID) | Assumed from the `url` field in responses: **TBD** |
-| `launches/previous`, `launches/upcoming` | Past-only / future-only launch lists | Assumed from API convention: **TBD** |
+| `launches/previous` | Past launches only | Verified: `fetch_spacex.py` uses it |
+| `launches/upcoming` | Future launches only | Not used; assumed from API convention |
 | `pad`, `rocket.configuration`, `launch_service_provider`, `mission` | Embedded in each launch when `mode=detailed` | Verified live |
 
 Base URL: `https://ll.thespacedevs.com`. Auth: none. Responses: JSON. Use `?mode=detailed` to get the nested objects shown below.
 
-Pagination envelope: `count` (total matches, 8130 at time of check), `next` and `previous` (URLs, `null` at the ends), `results` (array). Page size is set with `limit` and `offset`. **Maximum `limit`: TBD.**
+Pagination envelope: `count` (total matches, 8130 at time of check), `next` and `previous` (URLs, `null` at the ends), `results` (array). Page size is set with `limit` and `offset`. `fetch_spacex.py` uses `limit=100`; larger values are untested. With `mode=detailed`, pages of 100 sometimes time out (HTTP 504, seen 2026-11-17); re-running later worked.
 
 ### 3.2 Rate limits
 
-The free tier allows **15 unauthenticated requests per hour** ([source](https://thespacedevs.com/llapi)); higher rates need a paid plan. A full pull of ~8,000 launches will take many pages, so it must be spread over several hours. Fetch once, cache every page to `data/raw/`, and never re-poll. Whether a dev/snapshot endpoint exists is **TBD**.
+The free tier allows **15 unauthenticated requests per hour** ([source](https://thespacedevs.com/llapi)); higher rates need a paid plan. A SpaceX-only pull is about 8 requests. A full pull of ~8,000 launches would take many pages, so it must be spread over several hours. Fetch once, keep the output in `data/raw/`, and avoid re-polling. The Space Devs also run a development API with no rate limit but stale data, and an API key (via Patreon) raises the limit.
 
 ### 3.3 Launch object fields
 
@@ -72,7 +73,7 @@ Types and examples are from the live response. "Nullable" is only marked where `
 | `name` | string | no | | `"<Rocket> \| <Mission>"` |
 | `slug`, `url` | string | no | | |
 | `launch_designator` | string | maybe | COSPAR, e.g. `1957-001` | |
-| `status` | object | no | `id`, `name`, `abbrev`, `description` | **Outcome label.** Only `id 3 = "Launch Successful"` (`Success`) was observed. The full status list (failure, partial failure, TBD, scheduled...) is **TBD** |
+| `status` | object | no | `id`, `name`, `abbrev`, `description` | Launch outcome. `fetch_spacex.py` maps `id 3` (Success) to `mission_success = True` and `id 4` (Failure) / `id 7` (Partial Failure) to `False`; any other status is null. No longer the model target: the model predicts delay ([`MODELING.md`](MODELING.md) §2) |
 | `net` | string | no | ISO 8601, UTC | "No earlier than" launch time. Moves as the launch slips |
 | `net_precision` | object | yes | | `null` in the sample. Presumably how exact `net` is: **TBD** |
 | `window_start`, `window_end` | string | no | ISO 8601, UTC | Launch window. Window length is derivable |
@@ -87,13 +88,18 @@ Types and examples are from the live response. "Nullable" is only marked where `
 | `pad` | object | no | | `id`, `name`, `latitude`, `longitude` (numbers, WGS84), `location{name, country, timezone_name, latitude, longitude}`. Used to look up weather |
 | `*_launch_attempt_count`, `*_launch_attempt_count_year` | integer | no | count | Orbital / location / pad / agency counters |
 | `pad_turnaround` | string | no | ISO 8601 duration (`P0D`) | |
-| `webcast_live`, `vid_urls`, `info_urls`, `image`, `mission_patches`, `timeline`, `updates`, `program`, `hashtag`, `infographic`, `flightclub_url` | various | | | Media and metadata. Not model features |
+| `updates` | array | | `comment`, `created_on` (ISO 8601, UTC), ... | Schedule notes posted over time (e.g. "Now targeting Nov 05 at 02:35 UTC"). Saved by `fetch_spacex.py` to `data/raw/spacex_launch_updates.csv` and used to build the delay label |
+| `webcast_live`, `vid_urls`, `info_urls`, `image`, `mission_patches`, `timeline`, `program`, `hashtag`, `infographic`, `flightclub_url` | various | | | Media and metadata. Not model features |
 
-**Delay hours are not a field.** LL2 has no "delay" value. `net` changes over time and only its latest value is returned by a normal request, so deriving a delay needs a defined baseline. That is a scoping decision still open in [`DELIVERABLES.md`](DELIVERABLES.md) (milestone 1). Whether LL2 exposes `net` history (e.g. via `updates`) is **TBD**.
+**Delay is not a field.** LL2 has no "delay" value, and a normal request returns only the latest `net`. The schedule history comes from the `updates` notes instead: `train_model.py` parses the target dates in them and compares the actual launch with the baseline target. The definition (baseline, and 3 days for SpaceX / 7 days for other providers) is in [`MODELING.md`](MODELING.md) §2. Only launches with early-enough notes get a label: 362 of 745 on the 2026-11-17 fetch, all from 2020-12-19 onward.
 
 ### 3.4 Licensing
 
-The API page states no license, terms or attribution requirement. **TBD: confirm with a PM** before publishing results (see the checklist at the top of this file).
+No licence is named. The Space Devs' terms ([FAQ](https://github.com/TheSpaceDevs/Tutorials/blob/main/faqs/faq_TSD.md), checked 2026-11-17) apply to all Launch Library 2 data:
+
+- The data is free to use "in any way, shape, or form", and you may share what you build with it. They ask that you don't just forward the data on without adding value.
+- **Attribution is optional** ("not mandatory, but is encouraged and appreciated"). Suggested credit where shown: "Launch data from Launch Library 2 by The Space Devs (thespacedevs.com)".
+- Accuracy is not guaranteed, and they ask users to cache results rather than query the API repeatedly.
 
 ### 3.5 If a data point is missing
 
@@ -118,7 +124,7 @@ Follow the [missing-data policy](#2-missing-data-policy). Cases to expect:
 | `start_date`, `end_date` | yes | `yyyy-mm-dd` | |
 | `hourly` | no | comma-separated variable list | No default. Daily aggregates also available via `daily` (requires `timezone`) |
 | `temperature_unit` | no | `celsius` (default) | |
-| `wind_speed_unit` | no | **`kn`** (default is `kmh`) | **Must be set explicitly**, see [§5](#5-unit-conversions) |
+| `wind_speed_unit` | no | not passed, so **`kmh`** (the default) | `fetch_weather.py` does not set it, so wind speeds arrive in km/h. See [§5](#5-unit-conversions) |
 | `precipitation_unit` | no | `mm` (default) | |
 | `timeformat` | no | `iso8601` (default) | |
 | `timezone` | no | `GMT` (default) | Keep UTC so it matches `net` |
@@ -126,7 +132,7 @@ Follow the [missing-data policy](#2-missing-data-policy). Cases to expect:
 Example (Cape Canaveral area, tested):
 
 ```
-https://archive-api.open-meteo.com/v1/archive?latitude=28.5729&longitude=-80.649&start_date=2020-05-30&end_date=2020-05-30&hourly=temperature_2m,wind_speed_10m,cloud_cover&wind_speed_unit=kn
+https://archive-api.open-meteo.com/v1/archive?latitude=28.5729&longitude=-80.649&start_date=2020-05-30&end_date=2020-05-30&hourly=temperature_2m,wind_speed_10m,cloud_cover
 ```
 
 ### 4.2 Response shape
@@ -158,9 +164,9 @@ Units shown are what the API returns **with the settings in §4.1**. The final f
 | `pressure_msl` | float | hPa | Sea-level pressure |
 | `surface_pressure` | float | hPa | |
 | `cloud_cover` | float | % | Also `_low`, `_mid`, `_high` |
-| `wind_speed_10m` | float | **kn** | Only because we pass `wind_speed_unit=kn` |
-| `wind_speed_100m` | float | **kn** | Same |
-| `wind_gusts_10m` | float | **kn** | Same |
+| `wind_speed_10m` | float | **km/h** | Open-Meteo default; the fetcher does not change it |
+| `wind_speed_100m` | float | **km/h** | Same |
+| `wind_gusts_10m` | float | **km/h** | Same |
 | `wind_direction_10m` | float | ° | Direction wind comes from |
 | `weather_code` | integer | WMO code | Categorical, not a magnitude |
 
@@ -185,9 +191,13 @@ Limits apply per IP and per application. Shared cloud hosts (Vercel, Netlify, Re
 
 ### 4.6 Licensing and attribution
 
-- Free use is **non-commercial only**. Commercial use needs a paid plan and API key.
-- Data is CC BY 4.0: **credit Open-Meteo** wherever results are shown (dashboard footer or report). Exact wording is on the [licence page](https://open-meteo.com/en/licence): **TBD, confirm with a PM.**
-- Underlying data is Copernicus ERA5 / ERA5-Land: where shown, include "Generated using Copernicus Climate Change Service information".
+Checked 2026-11-17 against the [licence](https://open-meteo.com/en/licence) and [terms](https://open-meteo.com/en/terms) pages:
+
+- **Licence:** API data is CC BY 4.0. Give credit, link to the licence, and say if the data was changed.
+- **Required credit:** a link next to any place Open-Meteo data is shown, for example in the dashboard footer: [Weather data by Open-Meteo.com](https://open-meteo.com/).
+- **Free API is non-commercial only.** Educational and non-profit use without subscriptions or ads is allowed. Commercial use needs a paid plan. Free-tier limits are in [§4.4](#44-rate-limits-free-tier).
+- **Underlying data:** Open-Meteo lists the Copernicus Climate Change Service (C3S) as its reanalysis source. Where results are shown, also include "Generated using Copernicus Climate Change Service information".
+- **Citation (optional, for reports):** Zippenfenig, P. (2023). Open-Meteo.com Weather API [Computer software]. Zenodo. https://doi.org/10.5281/ZENODO.7970649
 
 ### 4.7 If a data point is missing
 
@@ -202,7 +212,7 @@ Follow the [missing-data policy](#2-missing-data-policy): missing numbers stay `
 
 | Quantity | Stored in `raw/` as | Convert to | How |
 |---|---|---|---|
-| Wind speed (`wind_speed_*`, `wind_gusts_*`) | knots (`kn`) | m/s | × 0.514444 |
+| Wind speed (`wind_speed_*`, `wind_gusts_*`, `high_altitude_wind_assumed`, `upper_wind_*_kmh`) | km/h | m/s | ÷ 3.6 |
 | Air temperature (`temperature_2m`, `dew_point_2m`) | °C | K | + 273.15 |
 | Pressure (`pressure_msl`, `surface_pressure`) | hPa | Pa | × 100 |
 | Precipitation | mm | m (if needed) | ÷ 1000 |
@@ -210,9 +220,7 @@ Follow the [missing-data policy](#2-missing-data-policy): missing numbers stay `
 | Time (`net`, `window_*`) | ISO 8601 string (UTC) | datetime (UTC) | `pd.to_datetime(x, utc=True)` |
 | Relative humidity, cloud cover | % | fraction (if needed) | ÷ 100 |
 
-Knots were chosen as the weather wind unit (the issue lists knots as an example unit). The Open-Meteo default is km/h, so forgetting `wind_speed_unit=kn` silently yields the wrong unit.
-
-> **Current state (checked 2026-10-27):** `src/data/fetch_weather.py` does **not** pass `wind_speed_unit=kn`, so the wind columns in `data/raw/historical_weather.csv` are in **km/h**, not knots as the wind row above assumes. The cleaning script converts them with **÷ 3.6** to m/s. Use ÷ 3.6 for the current raw files and × 0.514444 only if the fetcher is changed to request knots. Which of the two to fix (fetcher or this table) is **TBD, for a PM**.
+**All wind speeds in `raw/` are km/h.** Open-Meteo's surface winds arrive in its default unit, km/h, because `fetch_weather.py` does not pass `wind_speed_unit`. The IGRA2 radiosonde winds are stored in the source file in tenths of m/s; the fetcher divides by 10 and multiplies by 3.6, so the `upper_wind_*` columns are km/h too (checked 2026-11-17: surface wind median 12.8, peak upper wind median 118.4, both plausible in km/h). `clean_data.py` converts the surface winds to m/s with ÷ 3.6. The models use km/h, and `src/physics/trajectory.py` converts its m/s inputs to km/h (× 3.6) before calling the model.
 
 ---
 
@@ -229,19 +237,28 @@ data/
 
 | Folder | Holds | Rules |
 |---|---|---|
-| `data/raw/` | Unmodified API responses (e.g. the LL2 launches JSON pages, Open-Meteo hourly JSON), saved straight from the fetcher. Also holds `gcat_launch.tsv`, the GCAT launch log exactly as downloaded ([§8](#8-gcat-payload-mass)), and `igra/`, the zipped IGRA2 station files ([§9](#9-high-altitude-winds-noaa-igra2-radiosondes)) | **Immutable.** Never edit by hand; re-fetch instead. Units are source units (knots, °C, hPa). |
+| `data/raw/` | Fetcher outputs: `spacex_launches.csv` and `spacex_launch_updates.csv` (from LL2), `historical_weather.csv` (Open-Meteo + IGRA2). Also holds `gcat_launch.tsv`, the GCAT launch log exactly as downloaded ([§8](#8-gcat-payload-mass)), and `igra/`, the zipped IGRA2 station files ([§9](#9-high-altitude-winds-noaa-igra2-radiosondes)) | **Immutable.** Never edit by hand; re-fetch instead. Units are source units (km/h, °C, hPa). |
 | `data/interim/` | Intermediate outputs: unit conversions ([§5](#5-unit-conversions)), type fixes, LL2 launches joined to weather by pad coordinates and time | Reproducible from `raw/` by a tracked script. Safe to delete and regenerate. |
 | `data/processed/` | Final feature tables for the XGBoost models and the dashboard | Reproducible from `interim/`. This is what training and the app read. |
 
 Flow: `raw/` → `interim/` → `processed/`. Data only moves forward, and each step is a tracked script or notebook so any teammate can rebuild every folder from scratch.
 
-File naming inside these folders is not yet decided: **TBD.**
+File names are the ones the scripts write:
+
+| File | Written by |
+|---|---|
+| `data/raw/spacex_launches.csv`, `data/raw/spacex_launch_updates.csv`, `data/raw/gcat_launch.tsv` | `fetch_spacex.py` |
+| `data/raw/historical_weather.csv`, `data/raw/igra/<STATION>-data.txt.zip` | `fetch_weather.py` |
+| `data/interim/cleaned_launches.csv` | `clean_data.py` |
+| `data/processed/ml_features.csv` | `build_features.py` (what the models read) |
 
 Because `data/` is git-ignored, nobody gets `gcat_launch.tsv` or the IGRA2 zips from the repo. `fetch_spacex.py` downloads the GCAT file and `fetch_weather.py` downloads the IGRA2 zips the first time they run, and both reuse the local copy after that. Delete a file to pull a fresh copy. The Cape Kennedy zip is about 50 MB (230 MB unzipped), so the first weather run is slow.
 
 ---
 
 ## 7. EDA report: SpaceX launch feature table
+
+> **Snapshot from 2026-10-31, kept for reference.** It analyses `mission_success`, which is **no longer the model target**: the model now predicts on time vs delayed ([`MODELING.md`](MODELING.md) §2). Counts are from the 743-launch fetch; the 2026-11-17 fetch has 746. An EDA on the delay label is still to do ([§7.7](#77-delay-analysis-not-done)).
 
 Produced by `python src/data/eda.py` (checked 2026-10-31, after `payload_mass_kg` was switched to GCAT and the upper-air winds were added). It prints every table below and writes nothing to disk. SpaceX launches only (LL2 `lsp__id=121`), `net` from 2006-03-24 to 2026-10-31.
 
@@ -251,6 +268,7 @@ Produced by `python src/data/eda.py` (checked 2026-10-31, after `payload_mass_kg
 
 ```
 LL2 API          --fetch_spacex.py-->  data/raw/spacex_launches.csv      (743 rows, 7 columns)
+                                       data/raw/spacex_launch_updates.csv (schedule notes; read by train_model.py, not joined here)
 Open-Meteo API   --fetch_weather.py--> data/raw/historical_weather.csv   (743 rows, 48 columns)
 NOAA IGRA2       --/                   (upper-air winds are added by the same script)
                           |
@@ -260,7 +278,7 @@ NOAA IGRA2       --/                   (upper-air winds are added by the same sc
                  data/processed/ml_features.csv                          (743 rows, 56 columns)
 ```
 
-Each launch has at most one weather record: the hourly value closest to `net`, at the pad coordinates. Units are source units (see [§7.2](#72-feature-table-columns)). File names are the ones the scripts use today ([§6](#6-storage-layout-data) still lists naming as TBD).
+Each launch has at most one weather record: the hourly value closest to `net`, at the pad coordinates. Units are source units (see [§7.2](#72-feature-table-columns)). File names are listed in [§6](#6-storage-layout-data).
 
 ### 7.2 Feature table columns
 
@@ -271,7 +289,7 @@ Each launch has at most one weather record: the hourly value closest to `net`, a
 | `payload_mass_kg` | float | kg | Payload delivered to orbit, from GCAT ([§8](#8-gcat-payload-mass)). Null for 26 launches (see [§7.4](#74-missing-values)) |
 | `launchpad_latitude`, `launchpad_longitude` | float | degrees, WGS84 | LL2 `pad`. 7 distinct pad coordinates |
 | `launch_timestamp_utc` | string | ISO 8601, UTC | LL2 `net` (latest value, not the original schedule) |
-| `mission_success` | boolean | | **Target.** `True` = LL2 status 3. `False` = status 4 (failure) or 7 (partial failure). Anything else is null in the fetcher |
+| `mission_success` | boolean | | Launch outcome; the target of this snapshot, **no longer the model target**. The delay label `is_delayed` is computed in `train_model.py`, not stored in this table. `True` = LL2 status 3. `False` = status 4 (failure) or 7 (partial failure). Anything else is null in the fetcher |
 | `launch_time`, `latitude`, `longitude` | string / float | UTC / degrees | Copies of the launch time and pad coordinates, repeated by the weather file. Verified equal to the launch columns by the builder. Not used in the analysis |
 | `weather_time` | string | ISO 8601, UTC | Hourly weather record used |
 | `temperature_2m` | float | °C | Air temperature at 2 m |
@@ -380,7 +398,7 @@ Neither script reads the other's output. Correlation values match on either tabl
 
 ### 7.7 Delay analysis: not done
 
-The issue asks for correlations against launch delays. **LL2 has no delay field** and the baseline for computing one is not defined ([§3.3](#33-launch-object-fields), milestone 1 in [`DELIVERABLES.md`](DELIVERABLES.md)), so this report uses the mission outcome instead. Delay correlations are pending a PM's definition of delay.
+The issue asks for correlations against launch delays. The delay definition now exists ([`MODELING.md`](MODELING.md) §2), and the 2026-11-17 fetch gives 362 labelled launches (80 delayed). The delay EDA has not been run yet: `eda.py` still analyses `mission_success`. Next step: point it at `is_delayed` and check which features carry no new information (constant, empty, duplicate or highly correlated columns).
 
 ### 7.8 Still to document
 
@@ -414,7 +432,10 @@ Documentation for the physics data has not been added to this file yet.
 
 ### 8.1 License and attribution
 
-GCAT is released under CC BY. Credit it wherever results are shown, for example in the dashboard footer or report: "data from GCAT (J. McDowell, planet4589.org/space/gcat)". The license was read from the GCAT site and is not yet confirmed by a PM: **TBD.**
+GCAT is released under **CC BY 4.0** (the [GCAT site](https://planet4589.org/space/gcat/), checked 2026-11-17: "(c) 2020-2026 Jonathan McDowell", "CC-BY-4.0"). It may be freely reproduced as long as it is cited.
+
+- **Short credit** (dashboard footer): "data from GCAT (J. McDowell, planet4589.org/space/gcat)".
+- **Full citation** (reports): McDowell, Jonathan C., 2020. General Catalog of Artificial Space Objects, Release 1.8.9, https://planet4589.org/space/gcat. Use the release you downloaded; it is shown at the top of the GCAT site.
 
 ---
 
@@ -441,11 +462,14 @@ The `upper_wind_*` columns in `data/raw/historical_weather.csv` hold measured wi
 - **Two corrupted soundings are in the data.** Vandenberg's 2024-10-30 12 UTC and 2024-12-05 00 UTC soundings contain levels with winds of about 110 to 137 m/s (400 to 490 km/h) sitting beside neighbouring levels of 5 to 20 m/s. For example, at 6 km the 2024-12-05 sounding reports 111.1 m/s while the levels around it report 7 to 9 m/s. That is not physical: the strongest winds in a real jet stream are about 100 to 150 m/s, and only near 10 to 12 km, never as isolated spikes from one level to the next. The pattern looks like a scaling error in the source file (values about 10 times too large). Both soundings are used by the launches on 2024-10-30 and 2024-12-05, and those launches' `upper_wind_*` values are **unreliable**. A spike check (a level more than 30 m/s from the median of its 4 nearest levels) flags 6 of the 683 soundings used: these two (31 and 38 spike levels) and 4 others with 1 to 4 levels each (one 2020 and one 2023 Cape sounding, two Vandenberg soundings from 2026). Those four have not been examined. Not yet fixed in `fetch_weather.py`.
 - **Largest believable values.** With the two corrupted soundings set aside, the strongest wind in the table is 281.5 km/h (78 m/s at 12 km, Cape Kennedy, 2025-01-07), a normal winter jet-stream value. 400 km/h is possible only in a few rare record-strength jets, not at 6 km or 28 km.
 - **Kwajalein is thin.** Only 2 of its 5 launches (2006 and 2007) have a sounding; the three from 2008 and 2009 have none.
-- **Placeholder still in use.** `high_altitude_wind_assumed` and `wind_speed_ratio` have **not** been switched to these winds.
+- **Placeholder columns remain.** `high_altitude_wind_assumed` and `wind_speed_ratio` still use the surface wind, but neither is a model input: the models use `upper_wind_max_kmh` directly ([`MODELING.md`](MODELING.md) §9.1).
 
 ### 9.1 License and attribution
 
-IGRA2 is a NOAA NCEI product. Credit it wherever results are shown, for example "Integrated Global Radiosonde Archive, NOAA NCEI". No license or use restriction appears in the IGRA2 readme (checked 2026-10-31); the NCEI product page returned no text to check. NOAA data is generally free to use, but the terms have not been confirmed by a PM: **TBD.**
+IGRA2 is a NOAA NCEI product. Neither the IGRA2 readme nor the [NCEI product page](https://www.ncei.noaa.gov/products/weather-balloon/integrated-global-radiosonde-archive) states a licence or use restriction (checked 2026-11-17). It is U.S. federal government data, provided without warranty of accuracy (the page notes the data "may still include jumps and other discontinuities").
+
+- **Credit** (dashboard footer): "Integrated Global Radiosonde Archive (IGRA), NOAA NCEI".
+- **Citation** (reports): NCEI gives no dataset citation. Cite the IGRA v2 paper it lists: Durre, I., Yin, X., Vose, R. S., Applequist, S., & Arnfield, J. (2018). Enhancing the Data Coverage in the Integrated Global Radiosonde Archive. *J. Atmos. Oceanic Technol.*, 35(9), 1753–1770. https://doi.org/10.1175/JTECH-D-17-0223.1
 
 ### 9.2 Open question for the PM: corrupted soundings
 
@@ -465,12 +489,15 @@ Also open: four other soundings are flagged with 1 to 4 spike levels each (Cape 
 
 ## 10. Open questions for the PM
 
-Every item below needs a decision from a PM before it can be closed. Nothing has been changed for items 1 and 2. Re-running `fetch_spacex.py` or `fetch_weather.py` is held for the PM's answer on items 1 and 2, to save API calls.
+Every open item below needs a decision from a PM before it can be closed. Nothing has been changed for items 1 and 2. `fetch_spacex.py` and `fetch_weather.py` were re-run on 2026-11-17 to get the delay labels, so the corrupted soundings in item 1 are still in the current data.
 
 | # | Question | Where | Choices and cost |
 |---|---|---|---|
 | 1 | What to do about the two corrupted Vandenberg soundings (2024-10-30, 2024-12-05) | [§9.2](#92-open-question-for-the-pm-corrupted-soundings) | Drop the spike levels (suggested), blank those two launches, or leave as is. The first two need a re-run of `fetch_weather.py` |
 | 2 | Should `payload_mass_kg` be limited to low Earth orbit, or should the orbit be kept beside it? | [§8](#8-gcat-payload-mass) | **Leave as is:** 110 of 717 masses are for higher orbits (GTO and others), so mass mixes two kinds of mission. **Add an orbit column** (suggested): keep every launch and add GCAT's `Category` so models can separate them. **Keep LEO only:** drop the 110 higher-orbit masses (set to null, not dropped rows, per [§2](#2-missing-data-policy)). Either change needs a change to `fetch_spacex.py` and a re-run. Use `Category`, not `Apogee` (filled for only 209 of 717) |
-| 3 | Switch `high_altitude_wind_assumed` and `wind_speed_ratio` from the 10 m placeholder to a real upper-air wind, and which one (a fixed height such as 12 km, or `upper_wind_max_kmh`)? | [§7.2](#72-feature-table-columns) | Until decided, `wind_speed_ratio` is 1 on every row and carries no information |
-| 4 | Fix the wind unit in the fetcher (pass `wind_speed_unit=kn`) or change the [§5](#5-unit-conversions) table to km/h? | [§5](#5-unit-conversions) | Already marked TBD there. The new `upper_wind_*` columns are in km/h to match the current surface wind |
-| 5 | Confirm the license and attribution wording for GCAT, NOAA IGRA2 and Open-Meteo | [§1](#1-source-register), [§8.1](#81-license-and-attribution), [§9.1](#91-license-and-attribution), [§4.6](#46-licensing-and-attribution) | Open-Meteo's free tier is non-commercial only. GCAT's CC BY and IGRA2's terms (none found) were read from the sites and are unconfirmed |
+
+**Resolved (2026-11-17):**
+
+- **Upper-air wind instead of the placeholder:** the models use `upper_wind_max_kmh` directly ([`MODELING.md`](MODELING.md) §9.1). `high_altitude_wind_assumed` and `wind_speed_ratio` stay in the table but are not model inputs.
+- **Wind unit:** km/h everywhere in `raw/`, matching the fetcher ([§5](#5-unit-conversions)).
+- **Licences and attribution:** confirmed from each source's own pages ([§3.4](#34-licensing), [§4.6](#46-licensing-and-attribution), [§8.1](#81-license-and-attribution), [§9.1](#91-license-and-attribution)).
