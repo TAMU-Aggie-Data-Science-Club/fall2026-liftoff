@@ -120,7 +120,6 @@ def fetch_weather(latitude, longitude, launch_time):
         result = request_hourly(RECENT_URL, latitude, longitude, launch_time)
         source = "historical_forecast"
     result["weather_source"] = source
-    result["high_altitude_wind_assumed"] = result["wind_speed_10m"]
     return result
 
 
@@ -313,7 +312,6 @@ def main():
         "longitude",
         "weather_time",
         *WEATHER_VARIABLES,
-        "high_altitude_wind_assumed",
         "weather_source",
         *UPPER_WIND_COLUMNS,
     ]

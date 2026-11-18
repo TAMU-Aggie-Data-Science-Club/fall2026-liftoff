@@ -177,7 +177,7 @@ def redundancy(df: pd.DataFrame, numeric: list[str]) -> None:
 
 
 PCA_FEATURES = [
-    "temperature_2m", "wind_speed_10m", "precipitation", "cloud_cover", "high_altitude_wind_assumed",
+    "temperature_2m", "wind_speed_10m", "precipitation", "cloud_cover",
     "upper_wind_max_kmh", "upper_wind_speed_8km_kmh", "upper_wind_speed_10km_kmh", "upper_wind_speed_12km_kmh",
     "payload_mass_kg", "launchpad_latitude", "launchpad_longitude", "upper_wind_station_distance_km",
     "days_since_prev_spacex", "days_since_prev_pad", "target_moves_before_baseline", "target_month",

@@ -15,7 +15,6 @@ WEATHER_COLUMNS = {
     "wind_speed_10m": "wind_speed_10m_ms",
     "precipitation": "precipitation_mm",
     "cloud_cover": "cloud_cover_pct",
-    "high_altitude_wind_assumed": "high_altitude_wind_assumed_ms",
 }
 
 # Rows missing any of these are dropped. Payload mass is an important value but most are missing so it can be treated as null.
@@ -57,7 +56,6 @@ def normalize_units(df: pd.DataFrame) -> pd.DataFrame:
     # Open-Meteo reports wind in km/h. Temperature (C), precipitation (mm),
     # cloud cover (%) and payload mass (kg) are already in the target units.
     df["wind_speed_10m"] = df["wind_speed_10m"] * KMH_TO_MS
-    df["high_altitude_wind_assumed"] = df["high_altitude_wind_assumed"] * KMH_TO_MS
     return df.rename(columns=WEATHER_COLUMNS)
 
 
@@ -68,7 +66,6 @@ def drop_invalid(df: pd.DataFrame) -> pd.DataFrame:
         df["launchpad_latitude"].between(-90, 90)
         & df["launchpad_longitude"].between(-180, 180)
         & (df["wind_speed_10m_ms"] >= 0)
-        & (df["high_altitude_wind_assumed_ms"] >= 0)
         & (df["precipitation_mm"] >= 0)
         & df["cloud_cover_pct"].between(0, 100)
     )

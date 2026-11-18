@@ -89,12 +89,7 @@ build_features.py → data/processed/ml_features.csv   (left join on launch_id)
 train_model.py    → models/baseline_model.pkl
 ```
 
-`build_features.py` checks that each weather row matches its launch's time and pad coordinates, then adds two derived columns. **The model doesn't use either one yet:**
-
-| Column | Why it isn't a model input |
-|---|---|
-| `wind_speed_ratio` | Computed as `high_altitude_wind_assumed / wind_speed_10m`, but on `main` `high_altitude_wind_assumed` is a placeholder copy of the surface wind, so the ratio is always 1. |
-| `payload_ratio` | Needs a `max_payload_capacity_kg` column, which no source provides yet, so it is empty. |
+`build_features.py` checks that each weather row matches its launch's time and pad coordinates. It used to add two derived columns, `wind_speed_ratio` (always 1, built from the placeholder copy of surface wind `high_altitude_wind_assumed`) and `payload_ratio` (always empty, no capacity column). All three were removed on 2026-11-18 because they carried no information; [`DATA.md`](DATA.md) §7.2 explains why neither ratio was rebuilt from real data.
 
 ---
 
@@ -181,14 +176,14 @@ The project's issue #36 asks how upper-level wind shear affects predictions. Whe
 | XGBoost | `train_model.py` | **Not used on `main`.** `feature/add-windspeed` adds `upper_wind_max_kmh` to `NUMERIC_FEATURES` (not merged yet) |
 | RandomForest | `train_random_forest.py` on `data/random-forest` | Uses `upper_wind_max_kmh` (§5.1) |
 | Trajectory risk link | `src/physics/trajectory.py` on `physics/ml-solver-fusion` | Passes an optional `upper_wind_max` (m/s, converted to km/h) to the model |
-| Placeholder | `high_altitude_wind_assumed`, `wind_speed_ratio` | Still a copy of the surface wind, so the ratio is always 1. Neither is a model input |
+| Placeholder | `high_altitude_wind_assumed`, `wind_speed_ratio` | Removed 2026-11-18 (they were copies of the surface wind, and the ratio was always 1) |
 
 Cautions:
 - Two corrupted Vandenberg soundings (2024-10-30 and 2024-12-05) are still in the `upper_wind_*` values. See [`DATA.md`](DATA.md) §9.2; the fix is waiting on a PM decision.
 - Only the peak wind is used so far. Fixed-height winds or a derived shear (speed difference between height bands, not computed anywhere yet) are still options for issue #36.
 
 ### 9.2 Other open items
-- `payload_ratio` is unused because there is no capacity source (§4).
+- `payload_mass_kg` stays an input: the XGBoost model does worse without it, though it leaves Starship out of training ([`DATA.md`](DATA.md) §7.8).
 
 ---
 
