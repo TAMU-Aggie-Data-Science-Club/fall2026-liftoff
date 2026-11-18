@@ -129,8 +129,8 @@ def delay_threshold(launches: pd.DataFrame) -> pd.Series:
     return pd.to_timedelta(hours, unit="h")
 
 
-def delay_labels(launches: pd.DataFrame) -> pd.Series:
-    """is_delayed per launch (1/0), or NaN when no target was announced early enough."""
+def schedule_notes() -> pd.DataFrame:
+    """Every LL2 schedule note that names a launch date, with its parsed target time."""
     updates = pd.read_csv(UPDATES_PATH)
     updates["created_on"] = pd.to_datetime(updates["created_on"], utc=True)
     updates["target"] = [
@@ -139,12 +139,26 @@ def delay_labels(launches: pd.DataFrame) -> pd.Series:
     ]
     updates = updates.dropna(subset=["target"])
     updates["target"] = pd.to_datetime(updates["target"], utc=True)
+    return updates.sort_values("created_on")
 
+
+def baseline_notes(launches: pd.DataFrame) -> pd.DataFrame:
+    """Per launch_id: the baseline target and when it was announced (created_on).
+
+    The baseline is the latest target in a note posted at least DELAY_BASELINE_DAYS
+    before the actual launch. Launches without such a note are absent.
+    """
+    updates = schedule_notes()
     actual = launches.set_index("launch_id")["launch_timestamp_utc"]
     updates["actual"] = updates["launch_id"].map(actual)
     cutoff = updates["actual"] - pd.Timedelta(days=DELAY_BASELINE_DAYS)
     early = updates[updates["created_on"] <= cutoff]
-    baseline = early.sort_values("created_on").groupby("launch_id")["target"].last()
+    return early.groupby("launch_id")[["target", "created_on"]].last()
+
+
+def delay_labels(launches: pd.DataFrame) -> pd.Series:
+    """is_delayed per launch (1/0), or NaN when no target was announced early enough."""
+    baseline = baseline_notes(launches)["target"]
 
     gap = launches["launch_timestamp_utc"] - launches["launch_id"].map(baseline)
     is_delayed = (gap > delay_threshold(launches)).astype(float)
