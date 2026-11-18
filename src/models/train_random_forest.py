@@ -3,7 +3,8 @@
 Uses the same labels, launches and time-ordered holdout as train_model.py, so its
 numbers can be compared with the XGBoost model. It also uses the high-altitude wind
 (upper_wind_max_kmh). The rare delayed class is upweighted with class_weight="balanced".
-The model is retrained on all labelled launches and saved to models/random_forest_model.pkl.
+Launches missing any numeric input are left out (DATA.md §2). The model is retrained on
+all usable launches and saved to models/random_forest_model.pkl.
 """
 
 import pickle
@@ -41,7 +42,7 @@ THRESHOLD = 0.5
 
 
 def rf_features(df: pd.DataFrame, rocket_categories: list[str]) -> pd.DataFrame:
-    """Numeric features (NaN kept; the forest handles it) plus one column per rocket type."""
+    """Numeric features plus one column per rocket type (missing rocket types -> all zeros)."""
     numeric = df[RF_NUMERIC_FEATURES].apply(pd.to_numeric, errors="coerce")
     rockets = pd.get_dummies(
         pd.Categorical(df["rocket_type"], categories=rocket_categories),
@@ -73,14 +74,20 @@ def main() -> None:
     spec = MODELS["delay"]
     target = spec["target"]
     launches = load_launches()  # sorted by launch time
-    missing = [column for column in RF_NUMERIC_FEATURES if column not in launches]
-    if missing:
-        print(f"Warning: {missing} not in ml_features.csv; re-run fetch_weather.py and "
-              "build_features.py. Treating them as missing for now.")
-        for column in missing:
-            launches[column] = np.nan
+    absent = [column for column in RF_NUMERIC_FEATURES if column not in launches]
+    if absent:
+        raise SystemExit(f"{absent} not in ml_features.csv; re-run fetch_weather.py and "
+                         "build_features.py.")
 
-    df = launches.dropna(subset=[target]).reset_index(drop=True)
+    # Missing-data policy (DATA.md §2): a launch missing any numeric model input is
+    # left out of training and evaluation. Missing rocket_type is kept.
+    labelled = launches.dropna(subset=[target])
+    gaps = labelled[RF_NUMERIC_FEATURES].isna()
+    dropped = {column: int(count) for column, count in gaps.sum().items() if count}
+    if dropped:
+        print(f"  Left out {int(gaps.any(axis=1).sum())} of {len(labelled)} labelled launches "
+              f"missing a numeric model input: {dropped}")
+    df = labelled[~gaps.any(axis=1)].reset_index(drop=True)
     labels = df[target].astype(int)
     print(f"delay model (RandomForest): {len(df)} labelled launches ({labels.sum()} delays)")
 

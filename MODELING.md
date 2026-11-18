@@ -115,7 +115,7 @@ The script prints a quick check before saving: it trains on older launches and r
 | Features | §3 numeric features + `upper_wind_max_kmh` (high-altitude wind) + one-hot `rocket_type` |
 | Trees / `min_samples_leaf` | 500 / 2 |
 | Class weighting | `class_weight="balanced"`, the same idea as XGBoost's weights |
-| Missing values | Left as NaN; scikit-learn ≥ 1.4 forests handle them natively |
+| Missing values | Launches missing any numeric input are left out of training and evaluation ([`DATA.md`](DATA.md) §2) |
 | Decision threshold | 0.5 |
 
 It prints holdout accuracy, precision, recall, F1, ROC-AUC, PR-AUC and impurity-based feature importance, then saves a model retrained on all labelled launches to `models/random_forest_model.pkl`.
