@@ -1,4 +1,4 @@
-"""Train baseline XGBoost models for launch success and launch delay; save them to models/baseline_model.pkl."""
+"""Train the baseline XGBoost launch-delay model (on time vs delayed); save it to models/baseline_model.pkl."""
 
 import pickle
 import re
@@ -25,17 +25,24 @@ CATEGORICAL_FEATURES = ["rocket_type"]
 FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES
 
 # Each model: target column, the label value we care about catching, and its name.
+# One model: on time (0) vs delayed (1). The old success/failure model was dropped
+# (2026-11-17); in-flight failures are labelled by launch timing like any other launch.
 MODELS = {
-    "success": {"target": "mission_success", "event_value": 0, "event_name": "failures"},
     "delay": {"target": "is_delayed", "event_value": 1, "event_name": "delays"},
 }
 
-# Delay definition (team decision 2026-11-08, open to change):
+# Delay definition (team decision 2026-11-17, open to change):
 # baseline = latest target time stated in an LL2 note posted at least
 # DELAY_BASELINE_DAYS before the actual launch; delayed if the launch came more
-# than DELAY_THRESHOLD_HOURS after that baseline. No baseline -> left blank.
+# than the provider's threshold after that baseline. No baseline -> left blank.
+# Labels are by timing only: a launch that failed in flight but lifted off on time is on time.
 DELAY_BASELINE_DAYS = 7
-DELAY_THRESHOLD_HOURS = 24
+# Threshold depends on the launch provider: SpaceX 3 days; NASA and every other
+# provider 7 days. Launches without a launch_provider column count as SpaceX, since
+# fetch_spacex.py only fetches SpaceX launches today.
+DELAY_THRESHOLD_HOURS_BY_PROVIDER = {"SpaceX": 72}
+DEFAULT_DELAY_THRESHOLD_HOURS = 7 * 24
+DEFAULT_PROVIDER = "SpaceX"
 
 # Launches left out of training (they stay in the data files).
 EXCLUDED_LAUNCHES = {
@@ -44,7 +51,11 @@ EXCLUDED_LAUNCHES = {
     "3622669f-6e06-467a-86f3-47b56b1114c1",
 }
 
-HOLDOUT_FRACTION = 0.2  # newest launches held out for a quick check
+# Holdout = newest launches. Start with HOLDOUT_FRACTION; if that holds fewer than
+# MIN_TEST_EVENTS events, move the cutoff earlier, up to MAX_HOLDOUT_FRACTION.
+HOLDOUT_FRACTION = 0.2
+MAX_HOLDOUT_FRACTION = 0.4
+MIN_TEST_EVENTS = 10
 PARAMS = {
     "objective": "binary:logistic",
     "eval_metric": "logloss",
@@ -93,6 +104,16 @@ def parse_note_target(comment: str, created_on: pd.Timestamp) -> pd.Timestamp | 
     return date + pd.Timedelta(hours=int(hour), minutes=int(minute), seconds=int(second or 0))
 
 
+def delay_threshold(launches: pd.DataFrame) -> pd.Series:
+    """Per-launch slip allowed before a launch counts as delayed (SpaceX 72 h, others 7 days)."""
+    if "launch_provider" in launches:
+        provider = launches["launch_provider"].fillna(DEFAULT_PROVIDER)
+    else:
+        provider = pd.Series(DEFAULT_PROVIDER, index=launches.index)
+    hours = provider.map(DELAY_THRESHOLD_HOURS_BY_PROVIDER).fillna(DEFAULT_DELAY_THRESHOLD_HOURS)
+    return pd.to_timedelta(hours, unit="h")
+
+
 def delay_labels(launches: pd.DataFrame) -> pd.Series:
     """is_delayed per launch (1/0), or NaN when no target was announced early enough."""
     updates = pd.read_csv(UPDATES_PATH)
@@ -111,7 +132,7 @@ def delay_labels(launches: pd.DataFrame) -> pd.Series:
     baseline = early.sort_values("created_on").groupby("launch_id")["target"].last()
 
     gap = launches["launch_timestamp_utc"] - launches["launch_id"].map(baseline)
-    is_delayed = (gap > pd.Timedelta(hours=DELAY_THRESHOLD_HOURS)).astype(float)
+    is_delayed = (gap > delay_threshold(launches)).astype(float)
     return is_delayed.where(gap.notna())
 
 
@@ -124,6 +145,25 @@ def load_launches() -> pd.DataFrame:
     df["launch_timestamp_utc"] = pd.to_datetime(df["launch_timestamp_utc"], utc=True)
     df["is_delayed"] = delay_labels(df)
     return df.sort_values("launch_timestamp_utc").reset_index(drop=True)
+
+
+def usable_launches(
+    launches: pd.DataFrame, target: str, numeric_features: list[str] = NUMERIC_FEATURES
+) -> pd.DataFrame:
+    """Labelled launches with every numeric model input present, sorted by launch time.
+
+    Missing-data policy (DATA.md §2): a launch missing a numeric value the model uses
+    is left out of training and evaluation. Text/category gaps (rocket_type) are kept.
+    The data files themselves keep every launch.
+    """
+    labelled = launches.dropna(subset=[target])
+    missing = labelled[numeric_features].isna()
+    dropped = {column: int(count) for column, count in missing.sum().items() if count}
+    if dropped:
+        print(f"  Left out {int(missing.any(axis=1).sum())} of {len(labelled)} labelled "
+              f"launches missing a numeric model input: {dropped}")
+    complete = labelled[~missing.any(axis=1)]
+    return complete.sort_values("launch_timestamp_utc").reset_index(drop=True)
 
 
 def prepare_features(df: pd.DataFrame, rocket_categories: list[str]) -> pd.DataFrame:
@@ -157,7 +197,7 @@ def train(df: pd.DataFrame, target: str, rocket_categories: list[str]) -> xgb.Bo
 def predict_probability(
     booster: xgb.Booster, df: pd.DataFrame, rocket_categories: list[str]
 ) -> np.ndarray:
-    """Probability that the target is 1 (success for the success model, delayed for the delay model)."""
+    """Probability that the target is 1 (delayed)."""
     dmatrix = xgb.DMatrix(
         prepare_features(df, rocket_categories), enable_categorical=True
     )
@@ -174,9 +214,24 @@ def roc_auc(labels: np.ndarray, scores: np.ndarray) -> float | None:
     return (ranks[labels == 1].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg)
 
 
-def report_holdout(df: pd.DataFrame, spec: dict, rocket_categories: list[str]) -> None:
+def holdout_split(df: pd.DataFrame, spec: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Split date-sorted launches into older train / newer test, keeping time order.
+
+    The newest HOLDOUT_FRACTION is the starting test set. If it has fewer than
+    MIN_TEST_EVENTS events, the cutoff moves earlier one launch at a time until it
+    does, but the test set never exceeds MAX_HOLDOUT_FRACTION.
+    """
+    is_event = (df[spec["target"]] == spec["event_value"]).to_numpy()
+    events_from = np.cumsum(is_event[::-1])[::-1]  # events in df.iloc[i:]
     split = int(len(df) * (1 - HOLDOUT_FRACTION))
-    train_df, test_df = df.iloc[:split], df.iloc[split:]
+    earliest = int(len(df) * (1 - MAX_HOLDOUT_FRACTION))
+    while split > earliest and events_from[split] < MIN_TEST_EVENTS:
+        split -= 1
+    return df.iloc[:split], df.iloc[split:]
+
+
+def report_holdout(df: pd.DataFrame, spec: dict, rocket_categories: list[str]) -> None:
+    train_df, test_df = holdout_split(df, spec)
     booster = train(train_df, spec["target"], rocket_categories)
 
     labels = test_df[spec["target"]].astype(int).to_numpy()
@@ -189,8 +244,11 @@ def report_holdout(df: pd.DataFrame, spec: dict, rocket_categories: list[str]) -
     print(
         f"  Holdout check: trained on {len(train_df)} launches up to "
         f"{train_df['launch_timestamp_utc'].max():%Y-%m-%d}, "
-        f"tested on the newest {len(test_df)}"
+        f"tested on the newest {len(test_df)} ({len(test_df) / len(df):.0%})"
     )
+    if actual_event.sum() < MIN_TEST_EVENTS:
+        print(f"    Warning: fewer than {MIN_TEST_EVENTS} {name} even with a "
+              f"{MAX_HOLDOUT_FRACTION:.0%} holdout; treat these numbers as rough.")
     print(f"    {name.capitalize()} in test set:".ljust(28) + f"{actual_event.sum()}")
     print(f"    Accuracy:".ljust(28) + f"{(predicted_event == actual_event).mean():.3f}")
     print(f"    {name.capitalize()} caught:".ljust(28)
@@ -206,8 +264,8 @@ def main() -> None:
     saved_models = {}
 
     for name, spec in MODELS.items():
-        # Launches without a label for this target have nothing to learn from.
-        df = launches.dropna(subset=[spec["target"]]).reset_index(drop=True)
+        # Unlabelled launches have nothing to learn from; incomplete ones are left out (DATA.md §2).
+        df = usable_launches(launches, spec["target"])
         events = (df[spec["target"]] == spec["event_value"]).sum()
         print(f"{name} model: {len(df)} labelled launches ({events} {spec['event_name']})")
         report_holdout(df, spec, rocket_categories)
@@ -228,7 +286,8 @@ def main() -> None:
                 "num_boost_round": NUM_BOOST_ROUND,
                 "delay_definition": {
                     "baseline_days_before_launch": DELAY_BASELINE_DAYS,
-                    "threshold_hours": DELAY_THRESHOLD_HOURS,
+                    "threshold_hours_by_provider": DELAY_THRESHOLD_HOURS_BY_PROVIDER,
+                    "default_threshold_hours": DEFAULT_DELAY_THRESHOLD_HOURS,
                 },
             },
             file,
