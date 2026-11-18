@@ -17,7 +17,7 @@ One binary XGBoost classifier, saved in `models/baseline_model.pkl`. A launch is
 
 | Model | Target column | Label = 1 means | Event we care about catching |
 |---|---|---|---|
-| `delay` | `is_delayed` | Launch lifted off more than 72 h after its baseline target (§2) | Delays (label 1) |
+| `delay` | `is_delayed` | Launch lifted off more than its provider's threshold after its baseline target: 72 h for SpaceX, 7 days for others (§2) | Delays (label 1) |
 
 The model outputs the probability of a delay; the on-time probability is `1 − p`.
 
@@ -36,21 +36,25 @@ There is no delay field in the API, so `train_model.py` derives one from LL2 sch
 1. Keep notes that announce a schedule (keywords: *target, NET, delay, slip, moved, scheduled, recycle, revert*) and contain a date, for example "Now targeting Nov 05 at 02:35 UTC".
 2. Parse the target date and time. If a note gives a day but no time, the whole day counts as on time. If it gives no year, the year is inferred from when the note was posted.
 3. **Baseline:** the latest target announced in a note posted **at least 7 days** before the actual launch.
-4. **Delayed:** the actual launch came **more than 72 hours (3 days)** after the baseline. Otherwise it is **on time**, whatever happened after liftoff.
+4. **Delayed:** the actual launch came more than the provider's threshold after the baseline: **72 hours (3 days) for SpaceX, 7 days for NASA and every other provider**. Otherwise it is **on time**, whatever happened after liftoff.
 5. Launches with no qualifying note have a missing label and are excluded from the delay model. This covers most launches before about 2020.
 
 | Constant | Value | Meaning |
 |---|---|---|
 | `DELAY_BASELINE_DAYS` | 7 | How far before launch the baseline note must be posted |
-| `DELAY_THRESHOLD_HOURS` | 72 | Slip beyond the baseline that counts as delayed |
+| `DELAY_THRESHOLD_HOURS_BY_PROVIDER` | `{"SpaceX": 72}` | Slip beyond the baseline that counts as delayed, per provider |
+| `DEFAULT_DELAY_THRESHOLD_HOURS` | 168 (7 days) | Threshold for NASA and any provider not listed above |
 
-**The delay window depends on the data source.** Each launch provider gets its own threshold, because providers schedule differently. Only SpaceX is modelled today:
+**The delay window depends on the launch provider** (PM decision, 2026-11-17):
 
-| Source / provider | Baseline | Delay threshold | Decided |
+| Provider | Baseline | Delay threshold | Status |
 |---|---|---|---|
-| SpaceX (Launch Library 2 schedule notes) | Latest target announced ≥ 7 days before launch | > 72 h | 2026-11-17 (was 24 h, set 2026-11-08) |
+| SpaceX | Latest target announced ≥ 7 days before launch | > 72 h (3 days) | In use (was 24 h, set 2026-11-08) |
+| NASA and all other providers | Same rule | > 7 days | Defined, but no such launches are fetched yet |
 
-The 72 h figure is a **team definition**. We found no published SpaceX rule that defines a delay. When another provider is added, give it a row here and its own threshold in code.
+`delay_threshold()` reads a `launch_provider` column when the feature table has one. Launches without one count as SpaceX, because `fetch_spacex.py` only fetches SpaceX. A fetcher that adds other providers must also fill `launch_provider`.
+
+The 3-day and 7-day figures are **team definitions**. We found no published SpaceX rule that defines a delay. The 7-day threshold is separate from the 7-day baseline rule (`DELAY_BASELINE_DAYS`); they just happen to match.
 
 Amos-6 (exploded on the pad in 2016, never launched) is excluded from training.
 

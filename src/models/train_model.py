@@ -30,13 +30,18 @@ MODELS = {
     "delay": {"target": "is_delayed", "event_value": 1, "event_name": "delays"},
 }
 
-# Delay definition for SpaceX launches (team decision 2026-11-17, open to change):
+# Delay definition (team decision 2026-11-17, open to change):
 # baseline = latest target time stated in an LL2 note posted at least
 # DELAY_BASELINE_DAYS before the actual launch; delayed if the launch came more
-# than DELAY_THRESHOLD_HOURS (3 days) after that baseline. No baseline -> left blank.
+# than the provider's threshold after that baseline. No baseline -> left blank.
 # Labels are by timing only: a launch that failed in flight but lifted off on time is on time.
 DELAY_BASELINE_DAYS = 7
-DELAY_THRESHOLD_HOURS = 72
+# Threshold depends on the launch provider: SpaceX 3 days; NASA and every other
+# provider 7 days. Launches without a launch_provider column count as SpaceX, since
+# fetch_spacex.py only fetches SpaceX launches today.
+DELAY_THRESHOLD_HOURS_BY_PROVIDER = {"SpaceX": 72}
+DEFAULT_DELAY_THRESHOLD_HOURS = 7 * 24
+DEFAULT_PROVIDER = "SpaceX"
 
 # Launches left out of training (they stay in the data files).
 EXCLUDED_LAUNCHES = {
@@ -98,6 +103,16 @@ def parse_note_target(comment: str, created_on: pd.Timestamp) -> pd.Timestamp | 
     return date + pd.Timedelta(hours=int(hour), minutes=int(minute), seconds=int(second or 0))
 
 
+def delay_threshold(launches: pd.DataFrame) -> pd.Series:
+    """Per-launch slip allowed before a launch counts as delayed (SpaceX 72 h, others 7 days)."""
+    if "launch_provider" in launches:
+        provider = launches["launch_provider"].fillna(DEFAULT_PROVIDER)
+    else:
+        provider = pd.Series(DEFAULT_PROVIDER, index=launches.index)
+    hours = provider.map(DELAY_THRESHOLD_HOURS_BY_PROVIDER).fillna(DEFAULT_DELAY_THRESHOLD_HOURS)
+    return pd.to_timedelta(hours, unit="h")
+
+
 def delay_labels(launches: pd.DataFrame) -> pd.Series:
     """is_delayed per launch (1/0), or NaN when no target was announced early enough."""
     updates = pd.read_csv(UPDATES_PATH)
@@ -116,7 +131,7 @@ def delay_labels(launches: pd.DataFrame) -> pd.Series:
     baseline = early.sort_values("created_on").groupby("launch_id")["target"].last()
 
     gap = launches["launch_timestamp_utc"] - launches["launch_id"].map(baseline)
-    is_delayed = (gap > pd.Timedelta(hours=DELAY_THRESHOLD_HOURS)).astype(float)
+    is_delayed = (gap > delay_threshold(launches)).astype(float)
     return is_delayed.where(gap.notna())
 
 
@@ -251,7 +266,8 @@ def main() -> None:
                 "num_boost_round": NUM_BOOST_ROUND,
                 "delay_definition": {
                     "baseline_days_before_launch": DELAY_BASELINE_DAYS,
-                    "threshold_hours": DELAY_THRESHOLD_HOURS,
+                    "threshold_hours_by_provider": DELAY_THRESHOLD_HOURS_BY_PROVIDER,
+                    "default_threshold_hours": DEFAULT_DELAY_THRESHOLD_HOURS,
                 },
             },
             file,

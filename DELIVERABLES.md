@@ -62,7 +62,7 @@ Read through the responsibilities of each subteam and DM a.bisaria on Discord wi
 
 | # | Deliverable | Description | Owner (role) | Target |
 |---|-------------|-------------|--------------|--------|
-| 1 | Project scoping | Pick programs to cover (SpaceX + one historical). Define "success" canonically. Define what a "delay" means. Redefined 2026-11-17: "success" now means launched on time; a SpaceX launch is delayed if it lifts off more than 72 h after its target (see MODELING.md §2). | PM | Week 1 |
+| 1 | Project scoping | Pick programs to cover (SpaceX + one historical). Define "success" canonically. Define what a "delay" means. Redefined 2026-11-17: "success" now means launched on time; a launch is delayed if it lifts off more than 3 days after its target for SpaceX, or more than 7 days for NASA and other providers (see MODELING.md §2). | PM | Week 1 |
 | 2 | Data ingestion | Reproducible fetchers for Launch Library 2 API + NASA Open Data + weather. LL2 replaced the SpaceX community API, which was archived and unreachable. Documented in [`DATA.md`](DATA.md). | Members | Weeks 1–2 |
 | 3 | EDA | Distribution of outcomes, delays, launch cadence over time, payload mass distributions. | Members | Week 2 |
 | 4 | Feature engineering | Rocket family, payload mass, site, weather at launch time, days since previous launch of the same core. | Members | Weeks 3–4 |
