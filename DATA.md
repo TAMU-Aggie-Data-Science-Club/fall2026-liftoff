@@ -573,7 +573,6 @@ Not examined yet: four other soundings with 1 to 4 spike levels each (Cape Kenne
 
 - **Forecast weather (option C):** train on observed weather now; add a forecast archive (e.g. Open-Meteo's Previous Runs, from 2024) later. That archive will still need adding to the source register when adopted.
 - **LL2 `probability` and `weather_concerns`:** not saved or used; LL2 stores the final-day value, which leaks the outcome ([§7.10](#710-weather-go-forecasts-checked-2026-11-18)).
-
 - **Probability calibration:** the raw delay probabilities averaged 0.33 to 0.50 against an actual 2025-26 rate of 0.11 ([§7.8](#78-recommendations)). They are now calibrated with Platt scaling fitted on the last 12 months ([`MODELING.md`](MODELING.md) §5.1).
 - **Placeholder and ratio columns:** `high_altitude_wind_assumed`, `wind_speed_ratio` and `payload_ratio` were removed ([§7.2](#72-feature-table-columns)).
 - **Payload as a model input:** kept, because the XGBoost model does worse without it; Starship stays out of training as a result ([§7.8](#78-recommendations)).
