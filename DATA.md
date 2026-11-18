@@ -32,12 +32,13 @@ Look-up reference for the data Liftoff uses: where it comes from, what the field
 
 ## 2. Missing-data policy
 
-> ## ⚠️ TEMPORARY - NEEDS DISCUSSION WITH PM ⚠️
-> **Interim rule, by kind of field:**
-> - **Missing labels** (categorical or text fields, including the outcome): either **generalize** to a coarser category or store `null`. Decide per field and write down which.
-> - **Missing numbers**: keep as `null` (JSON `null` / pandas `NaN` / `None`) **and flag them**, so downstream code can tell "missing" apart from a real value. Never fill with 0.
->
-> Do not drop rows or impute in the pipeline. The flagging mechanism (for example a companion `<column>_missing` boolean), the generalization scheme, and per-field choices are **not decided**: **TBD, must be discussed with a PM** before feature engineering starts. Do not build logic that depends on the current choice.
+Decided 2026-11-17:
+
+- **Text, labels and other values the model does not compute with** (for example `rocket_type`, `upper_wind_station`, `weather_source`): a gap is fine. Store it as `null` and keep the launch.
+- **A missing number the model uses:** the launch is **left out of training and evaluation**. A launch cannot be modelled without the numbers it needs. Only the model's numeric inputs count (`NUMERIC_FEATURES` in `train_model.py`, `RF_NUMERIC_FEATURES` for the RandomForest). A gap in a column the model does not use, such as `payload_ratio` or a fixed-height wind, does not remove the launch.
+- **Never fill a missing number** with 0 or any other value. Keep it as `null` (JSON `null` / pandas `NaN`).
+- **The pipeline keeps every row.** The fetchers and `build_features.py` do not drop launches; the drop happens when the models load the data (`usable_launches()` in `train_model.py`), and the scripts print how many launches were left out and why. That way a gap that gets filled later (for example, NOAA publishing a late sounding) brings the launch back on the next fetch.
+- Which columns are model inputs is set by the feature list, which the EDA ([§7.7](#77-delay-analysis-not-done)) may change. The rule follows that list automatically.
 
 ---
 
@@ -107,7 +108,7 @@ Follow the [missing-data policy](#2-missing-data-policy). Cases to expect:
 
 - `status` for upcoming launches has no outcome yet: these have no label and are excluded from training.
 - `failreason` uses `""` rather than `null` for "none". Treat it as "no failure reason", not as a missing value.
-- `probability`, `weather_concerns`, `net_precision` and the rocket capacity/size numbers can be `null`. Numbers among these are flagged per the policy.
+- `probability`, `weather_concerns`, `net_precision` and the rocket capacity/size numbers can be `null`. None of them is a model input, so a gap does not remove the launch.
 - `mission` and `pad` fields may be sparse for old launches: **TBD**, check against a few pre-1990 records.
 
 ---
@@ -201,7 +202,7 @@ Checked 2026-11-17 against the [licence](https://open-meteo.com/en/licence) and 
 
 ### 4.7 If a data point is missing
 
-Follow the [missing-data policy](#2-missing-data-policy): missing numbers stay `null` and are flagged. **How Open-Meteo marks a missing hourly value is not stated in its docs: TBD.** JSON `null` is expected; confirm by checking a response for dates near the 5-day lag and treat any array element that is `null` as missing. Also expect gaps when a launch date is too recent or the launch time is imprecise (`net_precision`).
+Follow the [missing-data policy](#2-missing-data-policy): missing numbers stay `null`, and a launch missing a weather value the model uses is left out of training. **How Open-Meteo marks a missing hourly value is not stated in its docs: TBD.** JSON `null` is expected; confirm by checking a response for dates near the 5-day lag and treat any array element that is `null` as missing. Also expect gaps when a launch date is too recent or the launch time is imprecise (`net_precision`).
 
 ---
 
@@ -414,7 +415,7 @@ Documentation for the physics data has not been added to this file yet.
 |---|---|
 | Source file | GCAT launch log, `https://planet4589.org/space/gcat/tsv/launch/launch.tsv`, saved unmodified as `data/raw/gcat_launch.tsv` |
 | Format | Tab-separated. The first line is the header (starts with `#`) and the second is `# Updated ...`. No API |
-| Field used | `OrbPay` ("Orbital Payload"): payload delivered to orbit (perigee above 80 km) for the whole launch. **Unit: metric tonnes**, confirmed in GCAT's [launch list column explanations](https://www.planet4589.org/space/gcat/web/launch/lcols.html). The fetcher multiplies by 1000 to get kg |
+| Field used | `OrbPay` ("Orbital Payload"): payload delivered to orbit (perigee above 80 km) for the whole launch. GCAT also has `OrbMass` ("Orbital Mass"): the **total** mass at orbit insertion, including the upper stage and its leftover propellant. We use `OrbPay` only, because the model needs the payload, not the rocket. (`OrbMass` was added to GCAT in July 2026 and its values are not filled in yet.) **Unit: metric tonnes**, confirmed in GCAT's [launch list column explanations](https://www.planet4589.org/space/gcat/web/launch/lcols.html). The fetcher multiplies by 1000 to get kg |
 | Join to LL2 | GCAT has no LL2 ids. `fetch_spacex.py` matches each LL2 `net` to the nearest GCAT **Falcon** launch time within 2 hours |
 | Replaces LL2? | Yes, completely. LL2 values are discarded, not used as a fallback |
 
@@ -426,7 +427,7 @@ Documentation for the physics data has not been added to this file yet.
 **Cautions:**
 
 - Where LL2 and GCAT both had a value (10 launches), 7 agreed within 10%.
-- **The mass is not LEO-only.** `OrbPay` counts any payload that reaches orbit, whatever the orbit. GCAT's `Category` column, which is filled for all 717 launches with a mass, splits them into 607 in low Earth orbit (LEO 453, Sun-synchronous 94, ISS 60) and 110 in higher or elliptical orbits (GTO 39, super-synchronous transfer 31, elliptical Earth orbit 13, medium Earth orbit 10, other transfer orbits 9, geostationary 5, deep-space 2, Molniya-type 1). A GTO launch carries much less than a LEO one because the rocket spends fuel reaching the higher orbit, so a low `payload_mass_kg` can mean a lighter payload or a farther destination. Falcon 9's LEO maximum is about 18.9 t, which matches the largest value in the table. Whether to separate the two is an open question: [§10](#10-open-questions-for-the-pm).
+- **The mass is not LEO-only.** `OrbPay` counts any payload that reaches orbit, whatever the orbit. GCAT's `Category` column, which is filled for all 717 launches with a mass, splits them into 607 in low Earth orbit (LEO 453, Sun-synchronous 94, ISS 60) and 110 in higher or elliptical orbits (GTO 39, super-synchronous transfer 31, elliptical Earth orbit 13, medium Earth orbit 10, other transfer orbits 9, geostationary 5, deep-space 2, Molniya-type 1). A GTO launch carries much less than a LEO one because the rocket spends fuel reaching the higher orbit, so a low `payload_mass_kg` can mean a lighter payload or a farther destination. Falcon 9's LEO maximum is about 18.9 t, which matches the largest value in the table. **Decision (2026-11-17): keep all orbits** as they are; no orbit filter or orbit column.
 - GCAT's `Apogee` column cannot be used for this: it is filled for only 209 of the 717 launches. Use `Category`.
 - GCAT may revise a launch's mass after the fact. Delete the cached `data/raw/gcat_launch.tsv` and re-run the fetcher to pick up updates.
 
@@ -459,7 +460,7 @@ The `upper_wind_*` columns in `data/raw/historical_weather.csv` hold measured wi
 - **Not at the pad.** The station is up to 35 km away, and the balloon drifts downwind as it climbs, so the wind is the profile near the station and not exactly along the rocket's path.
 - **Not at launch time.** The sounding can be up to 12 h from liftoff.
 - **IGRA2 has gaps.** There are no soundings for April and May 2026, and the newest days are not published yet. Re-run `fetch_weather.py` later to fill recent launches. Delete the cached zip to pull a fresh copy.
-- **Two corrupted soundings are in the data.** Vandenberg's 2024-10-30 12 UTC and 2024-12-05 00 UTC soundings contain levels with winds of about 110 to 137 m/s (400 to 490 km/h) sitting beside neighbouring levels of 5 to 20 m/s. For example, at 6 km the 2024-12-05 sounding reports 111.1 m/s while the levels around it report 7 to 9 m/s. That is not physical: the strongest winds in a real jet stream are about 100 to 150 m/s, and only near 10 to 12 km, never as isolated spikes from one level to the next. The pattern looks like a scaling error in the source file (values about 10 times too large). Both soundings are used by the launches on 2024-10-30 and 2024-12-05, and those launches' `upper_wind_*` values are **unreliable**. A spike check (a level more than 30 m/s from the median of its 4 nearest levels) flags 6 of the 683 soundings used: these two (31 and 38 spike levels) and 4 others with 1 to 4 levels each (one 2020 and one 2023 Cape sounding, two Vandenberg soundings from 2026). Those four have not been examined. Not yet fixed in `fetch_weather.py`.
+- **Two corrupted soundings (now blanked).** Vandenberg's 2024-10-30 12 UTC and 2024-12-05 00 UTC soundings contain levels with winds of about 110 to 137 m/s (400 to 490 km/h) sitting beside neighbouring levels of 5 to 20 m/s. For example, at 6 km the 2024-12-05 sounding reports 111.1 m/s while the levels around it report 7 to 9 m/s. That is not physical: the strongest winds in a real jet stream are about 100 to 150 m/s, and only near 10 to 12 km, never as isolated spikes from one level to the next. The bad values are in the sounding's wind-only levels; its standard pressure levels look normal. **Fixed:** `fetch_weather.py` lists both soundings in `CORRUPTED_SOUNDINGS` and leaves the `upper_wind_*` columns blank for the launches that would use them (2024-10-30 and 2024-12-05), see [§9.2](#92-corrupted-soundings-decided). A spike check (a level more than 30 m/s from the median of its 4 nearest levels) flags 6 of the 683 soundings used: these two (31 and 38 spike levels) and 4 others with 1 to 4 levels each (one 2020 and one 2023 Cape sounding, two Vandenberg soundings from 2026). Those four have not been examined.
 - **Largest believable values.** With the two corrupted soundings set aside, the strongest wind in the table is 281.5 km/h (78 m/s at 12 km, Cape Kennedy, 2025-01-07), a normal winter jet-stream value. 400 km/h is possible only in a few rare record-strength jets, not at 6 km or 28 km.
 - **Kwajalein is thin.** Only 2 of its 5 launches (2006 and 2007) have a sounding; the three from 2008 and 2009 have none.
 - **Placeholder columns remain.** `high_altitude_wind_assumed` and `wind_speed_ratio` still use the surface wind, but neither is a model input: the models use `upper_wind_max_kmh` directly ([`MODELING.md`](MODELING.md) §9.1).
@@ -471,33 +472,27 @@ IGRA2 is a NOAA NCEI product. Neither the IGRA2 readme nor the [NCEI product pag
 - **Credit** (dashboard footer): "Integrated Global Radiosonde Archive (IGRA), NOAA NCEI".
 - **Citation** (reports): NCEI gives no dataset citation. Cite the IGRA v2 paper it lists: Durre, I., Yin, X., Vose, R. S., Applequist, S., & Arnfield, J. (2018). Enhancing the Data Coverage in the Integrated Global Radiosonde Archive. *J. Atmos. Oceanic Technol.*, 35(9), 1753–1770. https://doi.org/10.1175/JTECH-D-17-0223.1
 
-### 9.2 Open question for the PM: corrupted soundings
+### 9.2 Corrupted soundings (decided)
 
-**Decision needed (TBD, for a PM):** what to do about the corrupted Vandenberg soundings described in [§9](#9-high-altitude-winds-noaa-igra2-radiosondes). Nothing has been changed yet, so the two launches on 2024-10-30 and 2024-12-05 still carry unreliable `upper_wind_*` values, and every statistic in this file that includes the `upper_wind_*` columns includes them.
+**Decision (2026-11-17): blank the two launches' upper winds.** `fetch_weather.py` lists Vandenberg's 2024-10-30 12 UTC and 2024-12-05 00 UTC soundings in `CORRUPTED_SOUNDINGS`. When one of them is the sounding chosen for a launch, every `upper_wind_*` value for that launch is left blank (the station columns are kept), and the script prints which launches were affected. No other sounding is substituted. The raw IGRA2 file stays untouched.
 
-| Option | What it does | Cost |
-|---|---|---|
-| **A. Drop the spike levels (suggested)** | Remove any level more than 30 m/s from the median of its 4 nearest levels before interpolating, and add an `upper_wind_levels_dropped` column so affected launches can be found. The raw IGRA2 file stays untouched | Needs a re-run of `fetch_weather.py`, which makes one Open-Meteo request per launch (743). The 30 m/s threshold is a judgment call and could remove real wind shear |
-| **B. Blank the two launches' upper winds** | Set every `upper_wind_*` value to null for those two soundings | Loses the usable levels. Needs the same re-run |
-| **C. Leave as is** | Keep the values and document the problem | Bad values stay in any model trained on these columns |
+Under the missing-data policy ([§2](#2-missing-data-policy)), a blank `upper_wind_max_kmh` leaves the launch out of training for any model that uses it. Only the 2024-12-05 launch has a delay label, so the model loses one launch.
 
-Also open: four other soundings are flagged with 1 to 4 spike levels each (Cape Kennedy 2020-01-19 and 2023-03-02, Vandenberg 2026-01-25 and 2026-03-26). They have not been examined and some may be real wind shear, so check them before choosing a threshold.
+The statistics in [§7](#7-eda-report-spacex-launch-feature-table) are from before this fix and still include the bad values.
 
-**API limit:** the re-run is held until the PM decides. Open-Meteo's free tier allows 600 calls a minute and under 10,000 a day ([§4.4](#44-rate-limits-free-tier)), so one full run is well inside it. The IGRA2 zips are cached in `data/raw/igra/` and are not downloaded again.
+Not examined yet: four other soundings with 1 to 4 spike levels each (Cape Kennedy 2020-01-19 and 2023-03-02, Vandenberg 2026-01-25 and 2026-03-26). Some may be real wind shear.
 
 ---
 
 ## 10. Open questions for the PM
 
-Every open item below needs a decision from a PM before it can be closed. Nothing has been changed for items 1 and 2. `fetch_spacex.py` and `fetch_weather.py` were re-run on 2026-11-17 to get the delay labels, so the corrupted soundings in item 1 are still in the current data.
-
-| # | Question | Where | Choices and cost |
-|---|---|---|---|
-| 1 | What to do about the two corrupted Vandenberg soundings (2024-10-30, 2024-12-05) | [§9.2](#92-open-question-for-the-pm-corrupted-soundings) | Drop the spike levels (suggested), blank those two launches, or leave as is. The first two need a re-run of `fetch_weather.py` |
-| 2 | Should `payload_mass_kg` be limited to low Earth orbit, or should the orbit be kept beside it? | [§8](#8-gcat-payload-mass) | **Leave as is:** 110 of 717 masses are for higher orbits (GTO and others), so mass mixes two kinds of mission. **Add an orbit column** (suggested): keep every launch and add GCAT's `Category` so models can separate them. **Keep LEO only:** drop the 110 higher-orbit masses (set to null, not dropped rows, per [§2](#2-missing-data-policy)). Either change needs a change to `fetch_spacex.py` and a re-run. Use `Category`, not `Apogee` (filled for only 209 of 717) |
+No open questions right now. Add new ones here as they come up.
 
 **Resolved (2026-11-17):**
 
+- **Missing-data policy:** a launch missing a numeric model input is left out of training and evaluation; text/label gaps are fine ([§2](#2-missing-data-policy)).
+- **Corrupted Vandenberg soundings:** the two launches' upper winds are left blank ([§9.2](#92-corrupted-soundings-decided)).
+- **Payload orbit:** keep `OrbPay` for every orbit, with no filter or orbit column ([§8](#8-gcat-payload-mass)).
 - **Upper-air wind instead of the placeholder:** the models use `upper_wind_max_kmh` directly ([`MODELING.md`](MODELING.md) §9.1). `high_altitude_wind_assumed` and `wind_speed_ratio` stay in the table but are not model inputs.
 - **Wind unit:** km/h everywhere in `raw/`, matching the fetcher ([§5](#5-unit-conversions)).
 - **Licences and attribution:** confirmed from each source's own pages ([§3.4](#34-licensing), [§4.6](#46-licensing-and-attribution), [§8.1](#81-license-and-attribution), [§9.1](#91-license-and-attribution)).

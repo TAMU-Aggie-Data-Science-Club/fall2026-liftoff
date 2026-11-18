@@ -146,6 +146,25 @@ def load_launches() -> pd.DataFrame:
     return df.sort_values("launch_timestamp_utc").reset_index(drop=True)
 
 
+def usable_launches(
+    launches: pd.DataFrame, target: str, numeric_features: list[str] = NUMERIC_FEATURES
+) -> pd.DataFrame:
+    """Labelled launches with every numeric model input present, sorted by launch time.
+
+    Missing-data policy (DATA.md §2): a launch missing a numeric value the model uses
+    is left out of training and evaluation. Text/category gaps (rocket_type) are kept.
+    The data files themselves keep every launch.
+    """
+    labelled = launches.dropna(subset=[target])
+    missing = labelled[numeric_features].isna()
+    dropped = {column: int(count) for column, count in missing.sum().items() if count}
+    if dropped:
+        print(f"  Left out {int(missing.any(axis=1).sum())} of {len(labelled)} labelled "
+              f"launches missing a numeric model input: {dropped}")
+    complete = labelled[~missing.any(axis=1)]
+    return complete.sort_values("launch_timestamp_utc").reset_index(drop=True)
+
+
 def prepare_features(df: pd.DataFrame, rocket_categories: list[str]) -> pd.DataFrame:
     """Select model inputs; rocket types unseen in training become missing."""
     features = df[FEATURE_COLUMNS].copy()
@@ -244,8 +263,8 @@ def main() -> None:
     saved_models = {}
 
     for name, spec in MODELS.items():
-        # Launches without a label for this target have nothing to learn from.
-        df = launches.dropna(subset=[spec["target"]]).reset_index(drop=True)
+        # Unlabelled launches have nothing to learn from; incomplete ones are left out (DATA.md §2).
+        df = usable_launches(launches, spec["target"])
         events = (df[spec["target"]] == spec["event_value"]).sum()
         print(f"{name} model: {len(df)} labelled launches ({events} {spec['event_name']})")
         report_holdout(df, spec, rocket_categories)

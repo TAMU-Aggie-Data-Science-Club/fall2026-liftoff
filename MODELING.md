@@ -75,7 +75,7 @@ Amos-6 (exploded on the pad in 2016, never launched) is excluded from training.
 These are XGBoost's inputs on `main`. The RandomForest also uses `upper_wind_max_kmh`, and `feature/add-windspeed` adds it to XGBoost (§9.1).
 
 - Weather units are Open-Meteo's defaults, since `fetch_weather.py` doesn't request other units. The m/s conversion in `clean_data.py` only affects `data/interim/cleaned_launches.csv`, which the model does not read.
-- Missing numeric values are passed to XGBoost as `NaN`, which it handles natively. No imputation is done.
+- **Missing-data policy ([`DATA.md`](DATA.md) §2):** a launch missing any numeric model input is left out of training and evaluation (`usable_launches()`, which keys on `NUMERIC_FEATURES`). Missing `rocket_type` is kept. No imputation is done. At prediction time a missing number is still passed to the model as `NaN`; whether predictions should refuse instead is an open question.
 - `rocket_type` uses XGBoost's native categorical support. Rocket types not seen in training become missing at prediction time.
 
 ---

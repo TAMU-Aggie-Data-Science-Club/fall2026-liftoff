@@ -26,6 +26,7 @@ from train_model import (
     holdout_split,
     load_launches,
     prepare_features,
+    usable_launches,
     class_weights,
 )
 
@@ -354,12 +355,8 @@ def main():
         print(f"Evaluating {name.upper()} model")
         print(f"{'=' * 50}")
 
-        # Use only launches with known outcomes, sorted by date.
-        df = launches.dropna(
-            subset=[spec["target"]]
-        ).sort_values(
-            "launch_timestamp_utc"
-        ).reset_index(drop=True)
+        # Labelled launches with every numeric input present, sorted by date (DATA.md §2).
+        df = usable_launches(launches, spec["target"])
 
         # Reserve the newest launches for final evaluation (time-ordered; the
         # holdout grows past 20% if needed to contain enough events).
