@@ -38,7 +38,7 @@ There is no delay field in the API, so `train_model.py` derives one from LL2 sch
 2. Parse the target date and time. If a note gives a day but no time, the whole day counts as on time. If it gives no year, the year is inferred from when the note was posted.
 3. **Baseline:** the latest target announced in a note posted **at least 7 days** before the actual launch.
 4. **Delayed:** the actual launch came more than the provider's threshold after the baseline: **72 hours (3 days) for SpaceX, 7 days for NASA and every other provider**. Otherwise it is **on time**, whatever happened after liftoff.
-5. Launches with no qualifying note have a missing label and are excluded from the delay model. On the 2026-11-17 fetch, 362 of 745 launches have a label (80 delayed, 22%), all from 2020-12-19 onward.
+5. Launches with no qualifying note have a missing label and are excluded from the delay model. On the 2026-11-17 fetch, 362 of 745 launches have a label (80 delayed, 22%), all from 2020-12-19 onward. After the missing-data policy (§3), 342 are usable with the `main` feature list (20 lack a payload mass) and 322 (72 delayed) once `upper_wind_max_kmh` is an input (20 more lack it).
 
 | Constant | Value | Meaning |
 |---|---|---|
