@@ -55,6 +55,10 @@ Checks `src/physics/atmosphere.py` against published US Standard Atmosphere 1976
 
 ---
 
+`test_calibration.py` (5 checks) is not a physics test: it checks the delay model's Platt calibration in `src/models/train_model.py` (see [`MODELING.md`](../MODELING.md) §5.1). It needs xgboost and pandas as well as numpy. Run it with `python -m tests.test_calibration`.
+
+---
+
 ## 4. Notes
 
 - The Falcon 9 numbers are approximate public values used as sample inputs. They are not validation against a real launch. That is a separate deliverable.

@@ -20,11 +20,11 @@ One binary XGBoost classifier, saved in `models/baseline_model.pkl`. A launch is
 |---|---|---|---|
 | `delay` | `is_delayed` | Launch lifted off more than its provider's threshold after its baseline target: 72 h for SpaceX, 7 days for others (§2) | Delays (label 1) |
 
-The model outputs the probability of a delay; the on-time probability is `1 − p`.
+The model outputs the probability of a delay; the on-time probability is `1 − p`. Read it through `predict_delay_probability()`, which applies the calibration in §5.1. The raw XGBoost score from `predict_probability()` only ranks launches; it is not a usable probability.
 
 **Why no failure class (2026-11-17):** the old `success` model predicted `mission_success`, which had 15 failures in 743 launches. The project now asks whether a launch happens on schedule, not whether it blows up. Amos-6, the only vehicle that exploded before launching, stays excluded. The 14 in-flight failures all lifted off, so they are labelled by timing like any other launch. They can be dropped later if the team decides to.
 
-The pickle holds a dict with `models` (`{"delay": {...}}`, one XGBoost `Booster`), `feature_columns`, `rocket_categories`, `params`, `num_boost_round`, and `delay_definition`. Use the saved `rocket_categories` when preparing features for prediction so the categorical encoding matches training.
+The pickle holds a dict with `models` (`{"delay": {...}}`, one XGBoost `Booster` plus its `calibration`: method, slope, intercept, and the launches it was fitted on), `feature_columns`, `rocket_categories`, `params`, `num_boost_round`, and `delay_definition`. Use the saved `rocket_categories` when preparing features for prediction so the categorical encoding matches training.
 
 ---
 
@@ -106,7 +106,31 @@ train_model.py    → models/baseline_model.pkl
 | Class weighting | Each class weighted so both contribute equally in total, which upweights the rare class |
 | Decision threshold | 0.5 |
 
-The script prints a quick check before saving: it trains on older launches and reports accuracy, events caught, false alarms, and ROC-AUC on the newest ones (holdout rule in §6). The **saved** model is then retrained on all labelled launches.
+The script prints a quick check before saving: it trains on older launches and reports accuracy, events caught, false alarms, ROC-AUC, and the mean probability and Brier score before and after calibration on the newest ones (holdout rule in §6). The **saved** model is then retrained on all labelled launches.
+
+### 5.1 Probability calibration
+
+**Why:** the raw scores are far too high. On the 2025-26 launches they averaged 0.34 while 11% were actually delayed. Two causes add up: the class weighting trains the model as if delays and on-time launches were equally common, and delays fell from about 30% (2021-24) to about 10% (2025-26), so the model learned from years with more delays. `trajectory.py` (on `physics/ml-solver-fusion`) maps the probability to a risk level at 0.05 and 0.20, so with raw scores nearly every simulation came out "high".
+
+**How (decided 2026-11-18):** Platt scaling, a logistic curve on the logit of the raw score, `p = 1 / (1 + exp(-(slope · logit(raw) + intercept)))`. It is fitted on the launches of the last 12 months (`CALIBRATION_MONTHS`). Each of those launches is scored by a model trained only on earlier launches (retrained every 20 launches, `CALIBRATION_STEP`), so the curve sees honest out-of-sample scores. The slope and intercept are stored in the pickle. A positive slope keeps the order of the raw scores, so ROC-AUC is unchanged. The fit uses numpy only (no new dependency); `tests/test_calibration.py` checks it.
+
+**Methods compared** (2026-11-18, on 2025-26 launches: 148 launches, 16 delays, actual rate 0.108; each method fitted only on earlier launches):
+
+| Method | Mean predicted | Brier | Log loss |
+|---|---|---|---|
+| Raw score (before) | 0.336 | 0.189 | 0.560 |
+| Undo the class weights | 0.192 | 0.128 | 0.405 |
+| Undo the weights, then shift to the last-12-month rate | 0.161 | 0.119 | 0.392 |
+| **Platt, last 12 months (chosen)** | 0.185 | **0.104** | **0.362** |
+| Platt, last 24 months | 0.233 | 0.114 | 0.397 |
+| No model: quote the last-12-month delay rate | 0.199 | 0.106 | 0.369 |
+
+**Cautions:**
+
+- **The calibrated output is nearly constant.** On the 2026-11-17 data the curve is fitted on 92 launches with only 6 delays, and the raw scores barely relate to those delays, so the slope is about 0.05. Every launch gets 0.05 to 0.08, close to the recent delay rate, whatever the weather. This is the honest result of a model with little signal (ROC-AUC about 0.5, [`DATA.md`](DATA.md) §7.7), not a bug. If a later model ranks launches better, the slope will rise on its own.
+- **It is only barely better than quoting the recent delay rate** (Brier 0.104 vs 0.106).
+- **It lags a falling delay rate.** Fitted on the past, it still overshoots when delays keep falling (0.185 vs 0.108 above).
+- **With so few delays the fit can move a lot** from one data refresh to the next. Check the slope that `train_model.py` prints.
 
 ---
 

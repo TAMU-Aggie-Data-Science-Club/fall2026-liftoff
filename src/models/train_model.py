@@ -64,6 +64,14 @@ PARAMS = {
 }
 NUM_BOOST_ROUND = 200
 
+# Calibration (MODELING.md §5.1): the balanced class weights, and delays falling from ~30%
+# (2021-24) to ~10% (2025-26), make the raw scores far too high to read as a probability.
+# Platt scaling is fitted on out-of-sample scores for the launches of the last
+# CALIBRATION_MONTHS, each scored by a model trained only on earlier launches (retrained
+# every CALIBRATION_STEP launches).
+CALIBRATION_MONTHS = 12
+CALIBRATION_STEP = 20
+
 # Notes that announce a schedule, e.g. "Now targeting Nov 05 at 02:35 UTC",
 # "Delayed to NET December 23", "NET October 5, 2023".
 SCHEDULE_NOTE = re.compile(
@@ -233,6 +241,77 @@ def predict_probability(
     return booster.predict(dmatrix)
 
 
+def logit(probabilities: np.ndarray) -> np.ndarray:
+    p = np.clip(np.asarray(probabilities, dtype=float), 1e-6, 1 - 1e-6)
+    return np.log(p / (1 - p))
+
+
+def platt(scores: np.ndarray, slope: float, intercept: float) -> np.ndarray:
+    """Calibrated probability: a logistic curve on the logit of the raw score."""
+    return 1 / (1 + np.exp(-(slope * logit(scores) + intercept)))
+
+
+def fit_platt(scores: np.ndarray, labels: np.ndarray, steps: int = 50) -> tuple[float, float]:
+    """Fit Platt's slope and intercept by maximum likelihood (Newton's method)."""
+    labels = np.asarray(labels, dtype=float)
+    if labels.min() == labels.max():
+        raise ValueError("Calibration needs both delayed and on-time launches.")
+    X = np.column_stack([logit(scores), np.ones(len(labels))])
+    w = np.zeros(2)
+    for _ in range(steps):
+        p = 1 / (1 + np.exp(-X @ w))
+        gradient = X.T @ (labels - p)
+        hessian = X.T @ (X * (p * (1 - p))[:, None]) + 1e-9 * np.eye(2)
+        step = np.linalg.solve(hessian, gradient)
+        w += step
+        if np.abs(step).max() < 1e-10:
+            break
+    return float(w[0]), float(w[1])
+
+
+def out_of_sample_scores(
+    df: pd.DataFrame, target: str, rocket_categories: list[str], start: int
+) -> np.ndarray:
+    """Raw scores for df.iloc[start:], each from a model trained only on earlier launches."""
+    scores = np.full(len(df), np.nan)
+    for i in range(start, len(df), CALIBRATION_STEP):
+        block = df.iloc[i:i + CALIBRATION_STEP]
+        booster = train(df.iloc[:i], target, rocket_categories)
+        scores[i:i + len(block)] = predict_probability(booster, block, rocket_categories)
+    return scores
+
+
+def fit_calibration(df: pd.DataFrame, target: str, rocket_categories: list[str]) -> dict:
+    """Platt calibration fitted on the last CALIBRATION_MONTHS of the date-sorted df."""
+    times = df["launch_timestamp_utc"]
+    window_start = times.iloc[-1] - pd.DateOffset(months=CALIBRATION_MONTHS)
+    start = int(np.searchsorted(times, window_start))
+    scores = out_of_sample_scores(df, target, rocket_categories, start)[start:]
+    labels = df[target].astype(int).to_numpy()[start:]
+    slope, intercept = fit_platt(scores, labels)
+    return {
+        "method": "platt",
+        "slope": slope,
+        "intercept": intercept,
+        "fitted_on_launches": len(labels),
+        "fitted_on_delays": int(labels.sum()),
+        "window_start": times.iloc[start],
+        "window_end": times.iloc[-1],
+    }
+
+
+def predict_delay_probability(saved: dict, features: pd.DataFrame) -> np.ndarray:
+    """Calibrated delay probability from the saved model file (models/baseline_model.pkl).
+
+    Use this when the number is read as a probability or risk. predict_probability()
+    gives the raw score, which only ranks launches (it is far too high on average).
+    """
+    delay = saved["models"]["delay"]
+    raw = predict_probability(delay["booster"], features, saved["rocket_categories"])
+    calibration = delay["calibration"]
+    return platt(raw, calibration["slope"], calibration["intercept"])
+
+
 def roc_auc(labels: np.ndarray, scores: np.ndarray) -> float | None:
     # Rank-based AUC: chance that a random positive scores above a random negative.
     n_pos = (labels == 1).sum()
@@ -286,6 +365,16 @@ def report_holdout(df: pd.DataFrame, spec: dict, rocket_categories: list[str]) -
     print(f"    ROC-AUC:".ljust(28) + (f"{auc:.3f}" if auc is not None
                                         else "n/a (test set has only one outcome)"))
 
+    # Calibration fitted on the training launches only, then checked on the holdout.
+    calibration = fit_calibration(train_df, spec["target"], rocket_categories)
+    calibrated = platt(probs, calibration["slope"], calibration["intercept"])
+    print(f"    Mean probability:".ljust(28)
+          + f"raw {probs.mean():.3f}, calibrated {calibrated.mean():.3f}, "
+            f"actual rate {labels.mean():.3f}")
+    print(f"    Brier score:".ljust(28)
+          + f"raw {np.mean((probs - labels) ** 2):.3f}, "
+            f"calibrated {np.mean((calibrated - labels) ** 2):.3f} (lower is better)")
+
 
 def main() -> None:
     launches = load_launches()
@@ -298,8 +387,14 @@ def main() -> None:
         events = (df[spec["target"]] == spec["event_value"]).sum()
         print(f"{name} model: {len(df)} labelled launches ({events} {spec['event_name']})")
         report_holdout(df, spec, rocket_categories)
+        calibration = fit_calibration(df, spec["target"], rocket_categories)
+        print(f"  Calibration: Platt slope {calibration['slope']:.3f}, intercept "
+              f"{calibration['intercept']:.3f}, fitted on {calibration['fitted_on_launches']} "
+              f"launches ({calibration['fitted_on_delays']} {spec['event_name']}) from "
+              f"{calibration['window_start']:%Y-%m-%d} to {calibration['window_end']:%Y-%m-%d}")
         saved_models[name] = {
             "booster": train(df, spec["target"], rocket_categories),
+            "calibration": calibration,
             "target": spec["target"],
             "trained_on_rows": len(df),
         }

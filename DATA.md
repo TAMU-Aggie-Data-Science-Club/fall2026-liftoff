@@ -436,7 +436,7 @@ These are suggestions; changing the model's feature list is a team decision.
   | Last 12 months | 0.57 | 0.53 |
 
   Current model inputs; ROC-AUC on the 2025-26 test. Every interval but one includes 0.5 (the exception is RandomForest on the last 24 months, 0.51 to 0.79). The last 24 months scored about the same as all history, and the last 12 months did worse because it leaves only 9 to 26 delays to train on. The 4 features known a week ahead gave 0.55 to 0.62 with no consistent winner. **Decision (2026-11-18): keep training on all history.**
-- **Open: predicted probabilities are too high.** Because training weights the classes equally, every model above gave an average delay probability of 0.33 to 0.50 on 2025-26 launches, while the actual rate was 0.11. A shorter training window did not fix this. Ranking metrics (ROC-AUC, PR-AUC) are unaffected, but a probability shown as a "risk" on the dashboard would overstate it. This needs calibration before such a number is shown.
+- **Open: predicted probabilities are too high.** Because training weights the classes equally, every model above gave an average delay probability of 0.33 to 0.50 on 2025-26 launches, while the actual rate was 0.11. A shorter training window did not fix this. Ranking metrics (ROC-AUC, PR-AUC) are unaffected, but a probability shown as a "risk" on the dashboard would overstate it. **Fixed 2026-11-18** with Platt calibration ([`MODELING.md`](MODELING.md) §5.1).
 
 ### 7.9 Discrepancy between the two processed tables
 
@@ -536,10 +536,11 @@ Not examined yet: four other soundings with 1 to 4 spike levels each (Cape Kenne
 
 ## 10. Open questions for the PM
 
-- **Probability calibration:** the models' delay probabilities average 0.33 to 0.50 against an actual 2025-26 rate of 0.11 ([§7.8](#78-recommendations)). Decide whether to calibrate them before the dashboard shows them as a risk.
+No open questions right now. Add new ones here as they come up.
 
 **Resolved (2026-11-18):**
 
+- **Probability calibration:** the raw delay probabilities averaged 0.33 to 0.50 against an actual 2025-26 rate of 0.11 ([§7.8](#78-recommendations)). They are now calibrated with Platt scaling fitted on the last 12 months ([`MODELING.md`](MODELING.md) §5.1).
 - **Placeholder and ratio columns:** `high_altitude_wind_assumed`, `wind_speed_ratio` and `payload_ratio` were removed ([§7.2](#72-feature-table-columns)).
 - **Payload as a model input:** kept, because the XGBoost model does worse without it; Starship stays out of training as a result ([§7.8](#78-recommendations)).
 - **Training window:** all history, not only recent launches ([§7.8](#78-recommendations)).
