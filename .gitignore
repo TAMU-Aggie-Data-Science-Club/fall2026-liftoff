@@ -16,8 +16,8 @@ data/reference/tle/
 
 # --- Model outputs -------------------------------------------------------
 # Rebuilt by src/models/*.py from the git-ignored data, so never committed.
-models/
-reports/
+/models/
+/reports/
 
 # --- Common noise ----------------------------------------------------------
 # OS / editor cruft
