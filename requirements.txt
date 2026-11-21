@@ -5,3 +5,4 @@ numpy
 xgboost
 scipy
 requests
+scikit-learn
