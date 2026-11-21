@@ -88,7 +88,7 @@ def rf_features(df: pd.DataFrame, rocket_categories: list[str]) -> pd.DataFrame:
 def low_weather_go_flag(go_pct: float | None) -> float:
     """1.0 if a weather-go % is under LOW_WEATHER_GO_PCT, 0.0 if not, NaN if there is none.
 
-    For a live prediction, pass latest_weather_go(updates, launch_id, as_of=now).
+    For a live prediction, pass the GO % the dashboard user entered (None if left empty).
     """
     if go_pct is None or pd.isna(go_pct):
         return np.nan
