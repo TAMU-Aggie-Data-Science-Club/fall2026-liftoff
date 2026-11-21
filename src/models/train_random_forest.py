@@ -2,12 +2,15 @@
 
 Uses the same labels, launches and time-ordered holdout as train_model.py, so its
 numbers can be compared with the XGBoost model. It also uses the high-altitude wind
-(upper_wind_max_kmh). The rare delayed class is upweighted with class_weight="balanced".
-Launches missing any numeric input are left out (DATA.md §2). The model is retrained on
-all usable launches and saved to models/random_forest_model.pkl.
+(upper_wind_max_kmh) and the pre-slip weather-go forecast flag (low_weather_go). The rare
+delayed class is upweighted with class_weight="balanced". Launches missing any numeric
+input are left out (DATA.md §2), except low_weather_go, which is blank for most launches
+and stays blank. The model is retrained on all usable launches and saved to
+models/random_forest_model.pkl.
 """
 
 import pickle
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -22,15 +25,40 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
-from train_model import MODELS, NUMERIC_FEATURES, holdout_split, load_launches
+from train_model import (
+    DELAY_BASELINE_DAYS,
+    MODELS,
+    NUMERIC_FEATURES,
+    UPDATES_PATH,
+    holdout_split,
+    load_launches,
+    parse_note_target,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+from src.data.weather_go import latest_weather_go  # noqa: E402
+
 MODEL_PATH = REPO_ROOT / "models" / "random_forest_model.pkl"
 
-# XGBoost's numeric features plus the high-altitude wind (skipped if already listed).
+# XGBoost's numeric features plus the high-altitude wind and the weather-go flag
+# (each skipped if already listed).
 RF_NUMERIC_FEATURES = NUMERIC_FEATURES + [
-    column for column in ["upper_wind_max_kmh"] if column not in NUMERIC_FEATURES
+    column for column in ["upper_wind_max_kmh", "low_weather_go"]
+    if column not in NUMERIC_FEATURES
 ]
+# Numeric inputs that may be blank: launches missing them are kept, not dropped
+# (user decision 2026-11-21). RandomForest handles a blank natively (scikit-learn >= 1.4).
+OPTIONAL_NUMERIC_FEATURES = ["low_weather_go"]
+
+# low_weather_go: 1 if the latest weather-go forecast posted before the baseline target,
+# and before the target first moved, was under this percentage; 0 if at or above it;
+# blank if none was posted in time. Same rule as low_weather_go in train_model.py on
+# data/weather-go-feature; once both branches are merged, use that one instead.
+LOW_WEATHER_GO_PCT = 50
+# A later note counts as moving the target if it shifts it by more than this.
+TARGET_MOVE_TOLERANCE = pd.Timedelta(hours=1)
 RF_PARAMS = {
     "n_estimators": 500,
     "min_samples_leaf": 2,
@@ -42,8 +70,12 @@ THRESHOLD = 0.5
 
 
 def rf_features(df: pd.DataFrame, rocket_categories: list[str]) -> pd.DataFrame:
-    """Numeric features plus one column per rocket type (missing rocket types -> all zeros)."""
-    numeric = df[RF_NUMERIC_FEATURES].apply(pd.to_numeric, errors="coerce")
+    """Numeric features plus one column per rocket type (missing rocket types -> all zeros).
+
+    An optional input the caller did not supply (e.g. no weather-go forecast yet) is blank.
+    """
+    absent = {c: np.nan for c in OPTIONAL_NUMERIC_FEATURES if c not in df}
+    numeric = df.assign(**absent)[RF_NUMERIC_FEATURES].apply(pd.to_numeric, errors="coerce")
     rockets = pd.get_dummies(
         pd.Categorical(df["rocket_type"], categories=rocket_categories),
         prefix="rocket",
@@ -51,6 +83,53 @@ def rf_features(df: pd.DataFrame, rocket_categories: list[str]) -> pd.DataFrame:
     )
     rockets.index = df.index
     return pd.concat([numeric, rockets], axis=1)
+
+
+def low_weather_go_flag(go_pct: float | None) -> float:
+    """1.0 if a weather-go % is under LOW_WEATHER_GO_PCT, 0.0 if not, NaN if there is none.
+
+    For a live prediction, pass latest_weather_go(updates, launch_id, as_of=now).
+    """
+    if go_pct is None or pd.isna(go_pct):
+        return np.nan
+    return float(go_pct < LOW_WEATHER_GO_PCT)
+
+
+def forecast_cutoff(launches: pd.DataFrame, updates: pd.DataFrame) -> pd.Series:
+    """Per launch_id: the latest time a weather-go forecast may be posted and still be used.
+
+    That is the baseline target (as in delay_labels(): the latest target in a note posted
+    at least DELAY_BASELINE_DAYS before launch), or the first later note that moves the
+    target by more than TARGET_MOVE_TOLERANCE, whichever comes first. A forecast posted
+    after a move already knows about the delay, so using it would leak the outcome.
+    """
+    notes = updates.assign(created_on=pd.to_datetime(updates["created_on"], utc=True))
+    notes["target"] = pd.to_datetime(
+        [parse_note_target(c, t) for c, t in zip(notes["comment"], notes["created_on"])],
+        utc=True,
+    )
+    notes = notes.dropna(subset=["target"]).sort_values("created_on")
+    actual = notes["launch_id"].map(launches.set_index("launch_id")["launch_timestamp_utc"])
+    early = notes[notes["created_on"] <= actual - pd.Timedelta(days=DELAY_BASELINE_DAYS)]
+    baseline = early.groupby("launch_id")[["target", "created_on"]].last()
+
+    later = notes.join(baseline.add_suffix("_base"), on="launch_id", how="inner")
+    moved = later[
+        (later["created_on"] > later["created_on_base"])
+        & ((later["target"] - later["target_base"]).abs() > TARGET_MOVE_TOLERANCE)
+    ]
+    first_move = moved.groupby("launch_id")["created_on"].min()
+    return pd.concat([baseline["target"], first_move], axis=1).min(axis=1)
+
+
+def add_low_weather_go(launches: pd.DataFrame, updates: pd.DataFrame) -> pd.DataFrame:
+    """launches with a low_weather_go column (blank where no forecast came in time)."""
+    cutoff = forecast_cutoff(launches, updates)
+    flags = {
+        launch_id: low_weather_go_flag(latest_weather_go(updates, launch_id, as_of))
+        for launch_id, as_of in cutoff.items()
+    }
+    return launches.assign(low_weather_go=launches["launch_id"].map(flags).astype(float))
 
 
 def delay_probability(model: RandomForestClassifier, features: pd.DataFrame) -> np.ndarray:
@@ -74,15 +153,19 @@ def main() -> None:
     spec = MODELS["delay"]
     target = spec["target"]
     launches = load_launches()  # sorted by launch time
+    if "low_weather_go" not in launches:
+        launches = add_low_weather_go(launches, pd.read_csv(UPDATES_PATH))
     absent = [column for column in RF_NUMERIC_FEATURES if column not in launches]
     if absent:
         raise SystemExit(f"{absent} not in ml_features.csv; re-run fetch_weather.py and "
                          "build_features.py.")
 
     # Missing-data policy (DATA.md §2): a launch missing any numeric model input is
-    # left out of training and evaluation. Missing rocket_type is kept.
+    # left out of training and evaluation. Missing rocket_type and missing optional
+    # inputs (low_weather_go) are kept.
     labelled = launches.dropna(subset=[target])
-    gaps = labelled[RF_NUMERIC_FEATURES].isna()
+    required = [c for c in RF_NUMERIC_FEATURES if c not in OPTIONAL_NUMERIC_FEATURES]
+    gaps = labelled[required].isna()
     dropped = {column: int(count) for column, count in gaps.sum().items() if count}
     if dropped:
         print(f"  Left out {int(gaps.any(axis=1).sum())} of {len(labelled)} labelled launches "

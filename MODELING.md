@@ -112,13 +112,15 @@ The script prints a quick check before saving: it trains on older launches and r
 
 | Setting | Value |
 |---|---|
-| Features | §3 numeric features + `upper_wind_max_kmh` (high-altitude wind) + one-hot `rocket_type` |
+| Features | §3 numeric features + `upper_wind_max_kmh` (high-altitude wind) + `low_weather_go` (weather-go flag, optional) + one-hot `rocket_type` |
 | Trees / `min_samples_leaf` | 500 / 2 |
 | Class weighting | `class_weight="balanced"`, the same idea as XGBoost's weights |
-| Missing values | Launches missing any numeric input are left out of training and evaluation ([`DATA.md`](DATA.md) §2) |
+| Missing values | Launches missing any numeric input are left out of training and evaluation ([`DATA.md`](DATA.md) §2), except `low_weather_go`, which stays blank (`OPTIONAL_NUMERIC_FEATURES`; scikit-learn ≥ 1.4 handles blanks) |
 | Decision threshold | 0.5 |
 
 It prints holdout accuracy, precision, recall, F1, ROC-AUC, PR-AUC and impurity-based feature importance, then saves a model retrained on all labelled launches to `models/random_forest_model.pkl`.
+
+**`low_weather_go` (2026-11-21):** 1 if the latest 45th Weather Squadron forecast in the LL2 notes, posted before the baseline target and before the target moved, was under 50% GO; 0 if 50% or more; blank if none was posted in time (most launches a week out). Forecasts posted after a move are ignored because they already know about the delay. Parsing is in `src/data/weather_go.py`. Adding it raised the holdout ROC-AUC from 0.50 to 0.62 on the 2026-11-17 data (322 launches, 10 test delays). The same input is added to XGBoost on `data/weather-go-feature`, which also documents it in `DATA.md` §7.10. Once both branches are merged, `train_random_forest.py` should reuse that branch's `train_model.py` functions instead of its own copy.
 
 ---
 
