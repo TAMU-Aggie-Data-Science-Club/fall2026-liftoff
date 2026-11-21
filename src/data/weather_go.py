@@ -7,8 +7,8 @@ It is only posted a day or two before the target. The delay models use it as the
 optional input low_weather_go (train_model.py), blank when no forecast is out yet.
 
 Notes come from data/raw/spacex_launch_updates.csv (launch_id, created_on, comment),
-written by fetch_spacex.py. That file holds launches that have already flown; live use for
-an upcoming launch needs that launch's notes, which nothing fetches yet.
+written by fetch_spacex.py. That file holds launches that have already flown. For a live
+prediction the dashboard user enters the GO % instead, so upcoming-launch notes are not fetched.
 """
 
 import re
