@@ -33,8 +33,8 @@ FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES
 # (user decision 2026-11-21, DATA.md §2). Both models handle a blank natively.
 OPTIONAL_NUMERIC_FEATURES = ["low_weather_go"]
 
-# low_weather_go (DATA.md §7.10): 1 if the latest weather-go forecast posted before the
-# baseline target, and before the target first moved, was under this percentage; 0 if it
+# low_weather_go (DATA.md §7.10): 1 if the latest weather-go forecast posted after the baseline
+# note, before the baseline target, and before the target first moved, was under this percentage; 0 if it
 # was at or above it; blank if no forecast was posted in time. Forecasts come a day or two
 # before the target, so most launches have none a week out.
 LOW_WEATHER_GO_PCT = 50
@@ -220,11 +220,20 @@ def forecast_cutoff(baseline: pd.DataFrame, schedule: pd.DataFrame) -> pd.Series
     return pd.concat([baseline["target"], first_move], axis=1).min(axis=1)
 
 
-def low_weather_go_by_launch(updates: pd.DataFrame, cutoff: pd.Series) -> pd.Series:
-    """Per launch_id in cutoff: low_weather_go from the latest forecast posted by its cutoff."""
+def low_weather_go_by_launch(
+    updates: pd.DataFrame, cutoff: pd.Series, since: pd.Series | None = None
+) -> pd.Series:
+    """Per launch_id in cutoff: low_weather_go from the latest forecast posted by its cutoff.
+
+    since: per launch_id, the baseline note's created_on. Forecasts posted before it were
+    for an earlier target date, so they are ignored.
+    """
+    since = since if since is not None else pd.Series(dtype=object)
     return pd.Series(
         {
-            launch_id: low_weather_go_flag(latest_weather_go(updates, launch_id, as_of))
+            launch_id: low_weather_go_flag(
+                latest_weather_go(updates, launch_id, as_of, since.get(launch_id))
+            )
             for launch_id, as_of in cutoff.items()
         },
         dtype=float,
@@ -239,9 +248,10 @@ def load_launches() -> pd.DataFrame:
     )
     df["launch_timestamp_utc"] = pd.to_datetime(df["launch_timestamp_utc"], utc=True)
     df["is_delayed"] = delay_labels(df)
-    cutoff = forecast_cutoff(baseline_notes(df), schedule_notes())
+    baseline = baseline_notes(df)
+    cutoff = forecast_cutoff(baseline, schedule_notes())
     df["low_weather_go"] = df["launch_id"].map(
-        low_weather_go_by_launch(pd.read_csv(UPDATES_PATH), cutoff)
+        low_weather_go_by_launch(pd.read_csv(UPDATES_PATH), cutoff, baseline["created_on"])
     )
     return df.sort_values("launch_timestamp_utc").reset_index(drop=True)
 

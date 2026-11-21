@@ -71,7 +71,7 @@ Amos-6 (exploded on the pad in 2016, never launched) is excluded from training.
 | `precipitation` | numeric | mm | Open-Meteo |
 | `cloud_cover` | numeric | % | Open-Meteo |
 | `payload_mass_kg` | numeric | kg | GCAT `OrbPay` (tonnes × 1000), matched to each LL2 launch by time. Missing when GCAT has no real value (see [`DATA.md`](DATA.md) §8) |
-| `low_weather_go` | numeric, optional | 1 / 0 / blank | LL2 schedule notes: 1 if the latest weather-go forecast posted before the baseline target and before the target moved was under 50% GO, 0 if 50% or more, blank if none ([`DATA.md`](DATA.md) §7.10) |
+| `low_weather_go` | numeric, optional | 1 / 0 / blank | LL2 schedule notes: 1 if the latest weather-go forecast posted after the baseline note, before the baseline target and before the target moved was under 50% GO, 0 if 50% or more, blank if none ([`DATA.md`](DATA.md) §7.10) |
 | `rocket_type` | categorical | — | LL2 rocket configuration name |
 
 These are XGBoost's inputs on `data/weather-go-feature` (`main` lacks `low_weather_go`). The RandomForest also uses `upper_wind_max_kmh`, and `feature/add-windspeed` adds it to XGBoost (§9.1).

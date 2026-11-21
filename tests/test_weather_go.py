@@ -92,6 +92,26 @@ def test_by_launch_ignores_forecasts_after_cutoff():
     assert np.isnan(flags["c"])  # no forecast -> blank, launch is kept
 
 
+def test_by_launch_ignores_forecasts_before_baseline_note():
+    from src.models.train_model import low_weather_go_by_launch
+
+    # Jan 4: a 30% forecast for a Jan 5 target. Jan 5: the target moves to Jan 20 and that
+    # note is the baseline. The Jan 4 forecast was for a different date, so it is not used.
+    updates = pd.DataFrame({
+        "launch_id": ["a", "a", "b", "b"],
+        "created_on": ["2025-01-04T00:00Z", "2025-01-05T00:00Z",
+                       "2025-01-04T00:00Z", "2025-01-19T00:00Z"],
+        "comment": ["Updated launch weather, 30% GO.", "Now targeting Jan 20",
+                    "Updated launch weather, 30% GO.", "Updated launch weather, 80% GO."],
+    })
+    cutoff = pd.Series({"a": ts("2025-01-20"), "b": ts("2025-01-20")})
+    since = pd.Series({"a": ts("2025-01-05"), "b": ts("2025-01-05")})
+    flags = low_weather_go_by_launch(updates, cutoff, since)
+    assert np.isnan(flags["a"])  # only a stale forecast -> blank
+    assert flags["b"] == 0.0  # the newer 80% forecast is used
+    assert latest_weather_go(updates, "a", ts("2025-01-20"), since=ts("2025-01-04")) == 30
+
+
 def test_optional_input_not_dropped():
     from src.models.train_model import usable_launches
 
