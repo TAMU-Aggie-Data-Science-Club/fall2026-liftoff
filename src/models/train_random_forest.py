@@ -52,8 +52,8 @@ RF_NUMERIC_FEATURES = NUMERIC_FEATURES + [
 # (user decision 2026-11-21). RandomForest handles a blank natively (scikit-learn >= 1.4).
 OPTIONAL_NUMERIC_FEATURES = ["low_weather_go"]
 
-# low_weather_go: 1 if the latest weather-go forecast posted before the baseline target,
-# and before the target first moved, was under this percentage; 0 if at or above it;
+# low_weather_go: 1 if the latest weather-go forecast posted after the baseline note, before
+# the baseline target, and before the target first moved, was under this percentage; 0 if at or above it;
 # blank if none was posted in time. Same rule as low_weather_go in train_model.py on
 # data/weather-go-feature; once both branches are merged, use that one instead.
 LOW_WEATHER_GO_PCT = 50
