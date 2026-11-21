@@ -95,14 +95,12 @@ def low_weather_go_flag(go_pct: float | None) -> float:
     return float(go_pct < LOW_WEATHER_GO_PCT)
 
 
-def forecast_cutoff(launches: pd.DataFrame, updates: pd.DataFrame) -> pd.Series:
-    """Per launch_id: the latest time a weather-go forecast may be posted and still be used.
-
-    That is the baseline target (as in delay_labels(): the latest target in a note posted
-    at least DELAY_BASELINE_DAYS before launch), or the first later note that moves the
-    target by more than TARGET_MOVE_TOLERANCE, whichever comes first. A forecast posted
-    after a move already knows about the delay, so using it would leak the outcome.
-    """
+def schedule_and_baseline(
+    launches: pd.DataFrame, updates: pd.DataFrame
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Schedule notes with their parsed target, and per launch_id the baseline note
+    (as in delay_labels(): the latest target in a note posted at least DELAY_BASELINE_DAYS
+    before launch; columns target, created_on)."""
     notes = updates.assign(created_on=pd.to_datetime(updates["created_on"], utc=True))
     notes["target"] = pd.to_datetime(
         [parse_note_target(c, t) for c, t in zip(notes["comment"], notes["created_on"])],
@@ -111,8 +109,17 @@ def forecast_cutoff(launches: pd.DataFrame, updates: pd.DataFrame) -> pd.Series:
     notes = notes.dropna(subset=["target"]).sort_values("created_on")
     actual = notes["launch_id"].map(launches.set_index("launch_id")["launch_timestamp_utc"])
     early = notes[notes["created_on"] <= actual - pd.Timedelta(days=DELAY_BASELINE_DAYS)]
-    baseline = early.groupby("launch_id")[["target", "created_on"]].last()
+    return notes, early.groupby("launch_id")[["target", "created_on"]].last()
 
+
+def forecast_cutoff(launches: pd.DataFrame, updates: pd.DataFrame) -> pd.Series:
+    """Per launch_id: the latest time a weather-go forecast may be posted and still be used.
+
+    That is the baseline target, or the first later note that moves the target by more than
+    TARGET_MOVE_TOLERANCE, whichever comes first. A forecast posted after a move already
+    knows about the delay, so using it would leak the outcome.
+    """
+    notes, baseline = schedule_and_baseline(launches, updates)
     later = notes.join(baseline.add_suffix("_base"), on="launch_id", how="inner")
     moved = later[
         (later["created_on"] > later["created_on_base"])
@@ -123,10 +130,16 @@ def forecast_cutoff(launches: pd.DataFrame, updates: pd.DataFrame) -> pd.Series:
 
 
 def add_low_weather_go(launches: pd.DataFrame, updates: pd.DataFrame) -> pd.DataFrame:
-    """launches with a low_weather_go column (blank where no forecast came in time)."""
+    """launches with a low_weather_go column (blank where no forecast came in time).
+
+    Forecasts posted before the baseline note are ignored: they were for an earlier target date.
+    """
     cutoff = forecast_cutoff(launches, updates)
+    since = schedule_and_baseline(launches, updates)[1]["created_on"]
     flags = {
-        launch_id: low_weather_go_flag(latest_weather_go(updates, launch_id, as_of))
+        launch_id: low_weather_go_flag(
+            latest_weather_go(updates, launch_id, as_of, since.get(launch_id))
+        )
         for launch_id, as_of in cutoff.items()
     }
     return launches.assign(low_weather_go=launches["launch_id"].map(flags).astype(float))

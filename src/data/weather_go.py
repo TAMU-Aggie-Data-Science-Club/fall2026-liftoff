@@ -35,15 +35,25 @@ def parse_weather_go(comment: str) -> float | None:
     return value if value <= 100 else None
 
 
-def latest_weather_go(updates: pd.DataFrame, launch_id: str, as_of: pd.Timestamp) -> float | None:
+def latest_weather_go(
+    updates: pd.DataFrame,
+    launch_id: str,
+    as_of: pd.Timestamp,
+    since: pd.Timestamp | None = None,
+) -> float | None:
     """The most recent weather-go % posted for a launch at or before `as_of`, or None.
 
     Pass the time the prediction is made as `as_of` (UTC). Using a later time reads forecasts
     that were posted after a delay was known, which leaks the outcome (DATA.md §7.10).
+    `since`, if given, ignores forecasts posted before it: in training it is the baseline
+    note's time, since an older forecast was for an earlier target date.
     """
     notes = updates[updates["launch_id"] == launch_id]
     created = pd.to_datetime(notes["created_on"], utc=True)
-    notes = notes[created <= pd.Timestamp(as_of)].assign(created=created)
+    keep = created <= pd.Timestamp(as_of)
+    if since is not None:
+        keep &= created >= pd.Timestamp(since)
+    notes = notes[keep].assign(created=created)
     for comment in notes.sort_values("created", ascending=False)["comment"]:
         value = parse_weather_go(comment)
         if value is not None:

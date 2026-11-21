@@ -52,6 +52,26 @@ def test_forecast_after_target_move_is_ignored():
     assert np.isnan(flags["none"])  # no forecast -> blank
 
 
+def test_forecast_before_baseline_note_is_ignored():
+    # Jan 4: a 30% forecast for a Jan 5 target. Jan 5: the target moves to Jan 20; that note
+    # is the baseline. The Jan 4 forecast was for a different date, so it is not used.
+    launches = pd.DataFrame({
+        "launch_id": ["stale", "fresh"],
+        "launch_timestamp_utc": [ts("2025-01-20"), ts("2025-01-20")],
+    })
+    updates = pd.DataFrame({
+        "launch_id": ["stale", "stale", "fresh", "fresh", "fresh"],
+        "created_on": ["2025-01-04T00:00Z", "2025-01-05T00:00Z",
+                       "2025-01-04T00:00Z", "2025-01-05T00:00Z", "2025-01-19T00:00Z"],
+        "comment": ["Updated launch weather, 30% GO.", "Now targeting Jan 20 at 00:00 UTC",
+                    "Updated launch weather, 30% GO.", "Now targeting Jan 20 at 00:00 UTC",
+                    "Updated launch weather, 80% GO."],
+    })
+    flags = rf.add_low_weather_go(launches, updates).set_index("launch_id")["low_weather_go"]
+    assert np.isnan(flags["stale"])
+    assert flags["fresh"] == 0.0
+
+
 def test_rf_features_without_the_optional_column():
     df = pd.DataFrame({c: [1.0] for c in rf.RF_NUMERIC_FEATURES if c != "low_weather_go"})
     df["rocket_type"] = "Falcon 9"
