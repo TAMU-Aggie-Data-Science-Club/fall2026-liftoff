@@ -2,9 +2,9 @@
 
 LL2's notes carry the 45th Weather Squadron's forecast as free text, for example
 "Updated launch weather, 55% GO", "Weather 80%" or "Updating Weather POG to 40%".
-A forecast under 50% GO went with delays about 4x as often (38% vs 10% of launches),
-but it is only posted a day or two before the target, so it is a short-range indicator,
-not a model input.
+A forecast under 50% GO went with delays about 4x as often (38% vs 10% of launches).
+It is only posted a day or two before the target. The delay models use it as the
+optional input low_weather_go (train_model.py), blank when no forecast is out yet.
 
 Notes come from data/raw/spacex_launch_updates.csv (launch_id, created_on, comment),
 written by fetch_spacex.py. That file holds launches that have already flown; live use for

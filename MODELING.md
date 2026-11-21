@@ -9,6 +9,7 @@ How the launch-delay model is built, trained, and evaluated. This file describes
 - RandomForest comparison model: `src/models/train_random_forest.py` on `data/random-forest` (§5.1).
 - Results (§7) and feature importance (§8): **placeholders** until the model techniques are implemented and compared on the same data.
 - Upper-level winds: in the feature table; used by the RandomForest, not yet by XGBoost on `main`. See §9.1.
+- **Weather-go forecast input (2026-11-21, branch `data/weather-go-feature`):** `low_weather_go`, an optional input that is blank until a forecast is posted a day or two before launch (§3).
 
 ---
 
@@ -70,12 +71,14 @@ Amos-6 (exploded on the pad in 2016, never launched) is excluded from training.
 | `precipitation` | numeric | mm | Open-Meteo |
 | `cloud_cover` | numeric | % | Open-Meteo |
 | `payload_mass_kg` | numeric | kg | GCAT `OrbPay` (tonnes × 1000), matched to each LL2 launch by time. Missing when GCAT has no real value (see [`DATA.md`](DATA.md) §8) |
+| `low_weather_go` | numeric, optional | 1 / 0 / blank | LL2 schedule notes: 1 if the latest weather-go forecast posted before the baseline target and before the target moved was under 50% GO, 0 if 50% or more, blank if none ([`DATA.md`](DATA.md) §7.10) |
 | `rocket_type` | categorical | — | LL2 rocket configuration name |
 
-These are XGBoost's inputs on `main`. The RandomForest also uses `upper_wind_max_kmh`, and `feature/add-windspeed` adds it to XGBoost (§9.1).
+These are XGBoost's inputs on `data/weather-go-feature` (`main` lacks `low_weather_go`). The RandomForest also uses `upper_wind_max_kmh`, and `feature/add-windspeed` adds it to XGBoost (§9.1).
 
 - Weather units are Open-Meteo's defaults, since `fetch_weather.py` doesn't request other units. The m/s conversion in `clean_data.py` only affects `data/interim/cleaned_launches.csv`, which the model does not read.
-- **Missing-data policy ([`DATA.md`](DATA.md) §2):** a launch missing any numeric model input is left out of training and evaluation (`usable_launches()`, which keys on `NUMERIC_FEATURES`). Missing `rocket_type` is kept. No imputation is done. At prediction time a missing number is still passed to the model as `NaN`; whether predictions should refuse instead is an open question.
+- **Missing-data policy ([`DATA.md`](DATA.md) §2):** a launch missing any numeric model input is left out of training and evaluation (`usable_launches()`, which keys on `NUMERIC_FEATURES`). Missing `rocket_type` is kept, and so is a missing `low_weather_go` (`OPTIONAL_NUMERIC_FEATURES`).
+- **`low_weather_go` makes the model partly short-range.** A week before launch it is almost always blank, and the model works from the other inputs. Once the 45th Weather Squadron forecast is out (a median of 1.4 days before the target), the input fills in and sharpens the prediction. On the 2026-11-17 data, adding it raised the `train_model.py` holdout ROC-AUC from 0.52 to 0.60, and the calibration slope rose from 0.05 to 0.25, so predictions now spread out instead of sitting near the base rate. With tuning, `evaluate.py` gives a holdout ROC-AUC of 0.68 and ranks it first by gain. For a live prediction, compute it with `low_weather_go_flag(latest_weather_go(updates, launch_id, as_of=now))`, or leave it out and it is treated as blank. No imputation is done. At prediction time a missing number is still passed to the model as `NaN`; whether predictions should refuse instead is an open question.
 - `rocket_type` uses XGBoost's native categorical support. Rocket types not seen in training become missing at prediction time.
 
 ---
