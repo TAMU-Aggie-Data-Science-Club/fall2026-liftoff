@@ -25,19 +25,19 @@ preset_values = {
         "rocket": "Falcon 9",
         "mass": 500,
         "weather": "Clear",
-        "wind_speed": 10.0,
+        "wind_speed": 4.47,
     },
     "High-Wind Scrub Scenario": {
         "rocket": "Falcon 9",
         "mass": 500,
         "weather": "High Winds",
-        "wind_speed": 50.0,
+        "wind_speed": 22.35,
     },
     "Heavy Payload LEO Target": {
         "rocket": "Falcon Heavy",
         "mass": 900,
         "weather": "Clear",
-        "wind_speed": 5.0,
+        "wind_speed": 2.24,
     },
 }
 
@@ -68,7 +68,7 @@ with st.sidebar.expander("Weather and Environment", expanded=True):
     weather = st.selectbox("Select Weather Condition", ["Clear", "High Winds", "Storm"], key="weather")
 
     st.subheader("Wind Speed")
-    wind_speed = st.number_input("Enter Wind Speed (mph)", min_value=0.0, value=10.0, key="wind_speed")
+    wind_speed = st.number_input("Enter Wind Speed (m/s)", min_value=0.0, value=4.47, key="wind_speed")
 
 # Input state dictionary for downstream model consumption
 input_data = {
@@ -79,10 +79,10 @@ input_data = {
 }
 
 # Flight Readiness Panel (demo values)
-if weather == "High Winds" or weather == "Storm" or wind_speed >= 40:
+if weather == "High Winds" or weather == "Storm" or wind_speed >= 17.88:
     launch_status = "NO-GO"
     risk = 85
-elif wind_speed >= 25:
+elif wind_speed >= 11.18:
     launch_status = "NO-GO"
     risk = 55
 else:
@@ -118,7 +118,7 @@ flight_briefing = {
     "rocket": rocket,
     "payload_mass_kg": mass,
     "weather": weather,
-    "wind_speed_mph": wind_speed,
+    "wind_speed_mps": wind_speed,
     "launch_status": launch_status,
     "estimated_risk_percent": risk,
     "max_q_kpa": max_q,
