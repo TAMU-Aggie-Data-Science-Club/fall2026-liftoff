@@ -22,7 +22,7 @@ st.set_page_config(
 )
 
 # ============================================================
-# MISSION CONTROL DESIGN SYSTEM
+# MISSION CONTROL STYLING
 # ============================================================
 
 st.markdown(
@@ -30,17 +30,6 @@ st.markdown(
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap');
 
-:root {
-    --bg: #06111f;
-    --panel: #0d2033;
-    --panel-light: #112a40;
-    --cyan: #45e0f2;
-    --text: #e9f5ff;
-    --muted: #93b0c5;
-    --border: #21455f;
-}
-
-/* GLOBAL BACKGROUND */
 html, body, [data-testid="stApp"],
 [data-testid="stAppViewContainer"],
 [data-testid="stMain"] {
@@ -67,7 +56,8 @@ h1, h2, h3 {
     color: #e9f5ff !important;
 }
 
-/* SIDEBAR */
+/* SIDEBAR - KEEP CURRENT APPEARANCE */
+
 section[data-testid="stSidebar"] {
     background: #091b2d !important;
     min-width: 300px !important;
@@ -93,7 +83,8 @@ section[data-testid="stSidebar"] label {
     white-space: normal !important;
 }
 
-/* DARK EXPANDERS - NO WHITE HEADERS */
+/* SIDEBAR EXPANDERS */
+
 [data-testid="stExpander"] {
     background: #0d2033 !important;
     border: 1px solid #21455f !important;
@@ -124,7 +115,8 @@ section[data-testid="stSidebar"] label {
     background: #0d2033 !important;
 }
 
-/* INPUTS */
+/* INPUT CONTROLS */
+
 div[data-baseweb="select"] > div,
 div[data-baseweb="input"] > div {
     background: #112a40 !important;
@@ -156,6 +148,7 @@ li[role="option"]:hover {
 }
 
 /* METRIC CARDS */
+
 [data-testid="stMetric"] {
     background: linear-gradient(145deg, #10283d, #0b1c2d);
     border: 1px solid #285775;
@@ -186,6 +179,7 @@ li[role="option"]:hover {
 }
 
 /* CHART CONTAINERS */
+
 [data-testid="stVerticalBlockBorderWrapper"] > div {
     background: #0a1a2b !important;
     border-color: #1d3c53 !important;
@@ -193,6 +187,7 @@ li[role="option"]:hover {
 }
 
 /* DOWNLOAD BUTTONS */
+
 [data-testid="stDownloadButton"] button {
     background: #12354a !important;
     border: 1px solid #24cde4 !important;
@@ -208,6 +203,7 @@ li[role="option"]:hover {
 }
 
 /* SECTION HEADERS */
+
 .section-heading {
     font-family: 'Rajdhani', sans-serif;
     color: #e9f5ff;
@@ -219,7 +215,8 @@ li[role="option"]:hover {
     letter-spacing: 1px;
 }
 
-/* MAIN HERO */
+/* HERO */
+
 .hero-eyebrow {
     color: #45e0f2;
     font-size: 12px;
@@ -258,6 +255,8 @@ li[role="option"]:hover {
     letter-spacing: 1px;
     margin: 0 8px 8px 0;
 }
+
+/* STATUS BANNERS */
 
 .status-banner {
     padding: 16px 18px;
@@ -303,7 +302,6 @@ li[role="option"]:hover {
     letter-spacing: 1px;
 }
 
-/* HIDE STREAMLIT DECORATIVE ELEMENTS */
 #MainMenu {
     visibility: hidden;
 }
@@ -348,7 +346,6 @@ preset_values = {
     },
 }
 
-# Initialize session state
 defaults = {
     "rocket": "Falcon 9",
     "mass": 10,
@@ -362,7 +359,7 @@ for key, value in defaults.items():
         st.session_state[key] = value
 
 # ============================================================
-# SIDEBAR CONTROLS
+# SIDEBAR
 # ============================================================
 
 st.sidebar.markdown(
@@ -438,7 +435,7 @@ input_data = {
 }
 
 # ============================================================
-# FLIGHT READINESS - SIMULATED ESTIMATES
+# FLIGHT READINESS
 # ============================================================
 
 if weather in ["High Winds", "Storm"] or wind_speed >= 17.88:
@@ -454,7 +451,7 @@ else:
 max_q = 35.0
 
 # ============================================================
-# HERO HEADER
+# HERO
 # ============================================================
 
 st.markdown(
@@ -480,7 +477,7 @@ st.markdown(
 )
 
 # ============================================================
-# FLIGHT READINESS PANEL
+# FLIGHT READINESS
 # ============================================================
 
 st.markdown(
@@ -588,7 +585,7 @@ with csv_col:
     )
 
 # ============================================================
-# TRAJECTORY ANALYTICS
+# FLIGHT TELEMETRY ANALYTICS
 # ============================================================
 
 st.markdown(
@@ -634,7 +631,7 @@ with speed_column:
         )
 
 # ============================================================
-# 3D TRAJECTORY TRACKING
+# 3D FLIGHT PATH TRACKING
 # ============================================================
 
 st.markdown(
