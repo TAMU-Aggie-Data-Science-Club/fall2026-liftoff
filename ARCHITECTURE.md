@@ -4,7 +4,7 @@
 
 Liftoff is a rocket launch analysis dashboard that combines historical launch data, machine learning predictions, and physics-based trajectory simulations into one interactive application.
 
-The dashboard will be built using Streamlit for the user interface and Plotly for visualizations. Users will be able to select rocket launch parameters, view predicted launch success and delays, and explore simulated rocket trajectories.
+The dashboard will be built using Streamlit for the user interface and Plotly for visualizations. Users will be able to select rocket launch parameters, view the predicted chance of a launch delay, and explore simulated rocket trajectories.
 
 The project is divided into three subteams:
 
@@ -20,7 +20,7 @@ The Liftoff dashboard uses the following five main stages. The ML inference and 
 
 1. **User Inputs:** The user selects a rocket, launch site, and available launch conditions through the Streamlit interface.
 2. **Data Processing:** The data module retrieves and prepares relevant rocket, launch, and weather information for downstream calculations.
-3. **ML Inference:** The machine learning module receives prepared features and predicts launch success probability and expected delay hours.
+3. **ML Inference:** The machine learning module receives prepared features and predicts the probability that a launch is delayed.
 4. **Physics Simulation:** The physics module receives rocket and simulation parameters and calculates a simulated trajectory using physics-based equations.
 5. **Visualization:** The dashboard displays model predictions and trajectory results using Plotly charts inside Streamlit.
 
@@ -34,7 +34,7 @@ The Liftoff project organizes its Python code into four main modules inside the 
 
 - **`src.app`:** Handles the Streamlit user interface, user input controls, and Plotly visualizations. It connects the other modules and displays their results.
 - **`src.data`:** Handles collecting, loading, cleaning, and preparing launch, rocket, and weather data for the application and ML models.
-- **`src.models`:** Handles machine learning predictions, including launch success probability and expected delay hours.
+- **`src.models`:** Handles machine learning predictions, including the probability that a launch is delayed.
 - **`src.physics`:** Handles physics-based trajectory simulations and produces flight path coordinates for visualization.
 
 ### Module Communication
@@ -67,8 +67,7 @@ Input:
 - `features`: Prepared launch features supplied by the data module.
 
 Output:
-- `success_probability`: Predicted probability of launch success, represented as a number between 0 and 1.
-- `predicted_delay_hours`: Estimated launch delay in hours.
+- `delay_probability`: Predicted probability that the launch is delayed (more than 72 h past its target for SpaceX), a number between 0 and 1. The on-time probability is `1 - delay_probability`.
 
 ### Physics Module (`src.physics`)
 
@@ -88,7 +87,7 @@ The returned arrays should have matching lengths. The proposed standard is secon
 
 The Streamlit application will collect user inputs, call the appropriate data, ML, and physics functions, and display the returned results.
 
-The dashboard will use Plotly to visualize trajectory coordinates and present predicted success probability and delay hours.
+The dashboard will use Plotly to visualize trajectory coordinates and present the predicted delay probability.
 
 ### Proposed Python Imports
 

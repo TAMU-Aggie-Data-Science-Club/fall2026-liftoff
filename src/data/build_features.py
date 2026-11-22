@@ -67,34 +67,6 @@ def main():
 
     merged = merged.drop(columns=["_merge"])
 
-    # Feature engineering: assumed high-altitude wind / surface wind
-    surface_wind = pd.to_numeric(
-        merged["wind_speed_10m"], errors="coerce"
-    )
-    high_wind = pd.to_numeric(
-        merged["high_altitude_wind_assumed"], errors="coerce"
-    )
-
-    merged["wind_speed_ratio"] = (
-        high_wind / surface_wind.where(surface_wind != 0)
-    )
-
-    # Payload ratio requires a rocket payload-capacity value
-    merged["payload_ratio"] = float("nan")
-
-    if "max_payload_capacity_kg" in merged.columns:
-        payload = pd.to_numeric(
-            merged["payload_mass_kg"], errors="coerce"
-        )
-        capacity = pd.to_numeric(
-            merged["max_payload_capacity_kg"], errors="coerce"
-        )
-        merged["payload_ratio"] = (
-            payload / capacity.where(capacity > 0)
-        )
-    else:
-        print("Payload ratio left empty: rocket capacity unavailable.")
-
     # Save output
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
     merged.to_csv(OUTPUT_FILE, index=False)

@@ -75,6 +75,10 @@ Checks `src/physics/trajectory.py`, mainly `simulate_trajectory(payload_mass, wi
 
 ## 5. Notes
 
+`test_calibration.py` (5 checks) is not a physics test: it checks the delay model's Platt calibration in `src/models/train_model.py` (see [`MODELING.md`](../MODELING.md) §5.1). It needs xgboost and pandas as well as numpy. Run it with `python -m tests.test_calibration`.
+
+`test_weather_go.py` (3 checks) covers the weather-go forecast parser in `src/data/weather_go.py` (see [`DATA.md`](../DATA.md) §7.10). Run it with `python -m tests.test_weather_go`.
+
 - The Falcon 9 numbers are approximate public values used as sample inputs. They are not validation against a real launch. That is a separate deliverable.
 - If you change a constant in `constants.py` (like `P0` or `R_AIR`), rerun both files. A lot of the expected values depend on them.
 - When you add a new physics function, add its checks to the matching test file in the same style: a `test_` function with plain `assert`s. The runner at the bottom of each file picks it up automatically.
