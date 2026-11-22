@@ -1,6 +1,5 @@
 
 import json
-
 import pandas as pd
 import streamlit as st
 
@@ -11,9 +10,9 @@ from components.charts import (
     generate_mock_trajectory,
 )
 
-# ==========================================================
-# PAGE CONFIG
-# ==========================================================
+# ============================================================
+# PAGE CONFIGURATION
+# ============================================================
 
 st.set_page_config(
     page_title="LIFTOFF | Mission Control",
@@ -22,226 +21,304 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ==========================================================
-# MISSION CONTROL THEME
-# ==========================================================
+# ============================================================
+# MISSION CONTROL DESIGN SYSTEM
+# ============================================================
 
-st.markdown("""
+st.markdown(
+    """
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap');
+
 :root {
-    color-scheme: dark;
+    --bg: #06111f;
+    --panel: #0d2033;
+    --panel-light: #112a40;
+    --cyan: #45e0f2;
+    --text: #e9f5ff;
+    --muted: #93b0c5;
+    --border: #21455f;
 }
 
-.stApp,
+/* GLOBAL BACKGROUND */
+html, body, [data-testid="stApp"],
 [data-testid="stAppViewContainer"],
 [data-testid="stMain"] {
-    background:
-        radial-gradient(ellipse at 75% 0%,
-            rgba(0, 180, 220, 0.10), transparent 42%),
-        #07111e;
-    color: #e8f4ff;
+    background: #06111f !important;
+    color: #e9f5ff !important;
 }
 
 [data-testid="stHeader"] {
-    background: rgba(7, 17, 30, 0.9);
+    background: #06111f !important;
 }
 
-[data-testid="stSidebar"] {
-    background: #0b1b2c;
-    border-right: 1px solid #24435a;
+.block-container {
+    padding-top: 2.2rem !important;
+    padding-bottom: 3rem !important;
+    max-width: 1600px !important;
 }
 
-[data-testid="stSidebar"] * {
-    color: #e3f2fc;
+html, body, p, label, div, span {
+    font-family: 'Inter', sans-serif;
 }
 
-h1, h2, h3, p, label {
-    color: #e8f4ff;
+h1, h2, h3 {
+    font-family: 'Rajdhani', sans-serif !important;
+    color: #e9f5ff !important;
 }
 
+/* SIDEBAR */
+section[data-testid="stSidebar"] {
+    background: #091b2d !important;
+    min-width: 300px !important;
+    max-width: 300px !important;
+    border-right: 1px solid #21455f !important;
+}
+
+section[data-testid="stSidebar"] > div {
+    background: #091b2d !important;
+}
+
+section[data-testid="stSidebar"] * {
+    color: #e9f5ff;
+}
+
+section[data-testid="stSidebar"] h2,
+section[data-testid="stSidebar"] h3 {
+    color: #45e0f2 !important;
+}
+
+section[data-testid="stSidebar"] label {
+    color: #c7dce9 !important;
+    white-space: normal !important;
+}
+
+/* DARK EXPANDERS - NO WHITE HEADERS */
+[data-testid="stExpander"] {
+    background: #0d2033 !important;
+    border: 1px solid #21455f !important;
+    border-radius: 12px !important;
+    overflow: hidden;
+}
+
+[data-testid="stExpander"] details {
+    background: #0d2033 !important;
+}
+
+[data-testid="stExpander"] details summary {
+    background: #112a40 !important;
+    color: #e9f5ff !important;
+    padding: 12px !important;
+}
+
+[data-testid="stExpander"] details summary * {
+    color: #e9f5ff !important;
+    background: transparent !important;
+}
+
+[data-testid="stExpander"] details summary:hover {
+    background: #173850 !important;
+}
+
+[data-testid="stExpander"] details > div {
+    background: #0d2033 !important;
+}
+
+/* INPUTS */
+div[data-baseweb="select"] > div,
+div[data-baseweb="input"] > div {
+    background: #112a40 !important;
+    color: #e9f5ff !important;
+    border-color: #37617a !important;
+    border-radius: 8px !important;
+}
+
+div[data-baseweb="select"] *,
+div[data-baseweb="input"] input {
+    color: #e9f5ff !important;
+}
+
+div[data-baseweb="popover"],
+ul[role="listbox"] {
+    background: #112a40 !important;
+}
+
+li[role="option"] {
+    color: #e9f5ff !important;
+}
+
+li[role="option"]:hover {
+    background: #1b4560 !important;
+}
+
+[data-testid="stSlider"] [role="slider"] {
+    background: #45e0f2 !important;
+}
+
+/* METRIC CARDS */
 [data-testid="stMetric"] {
-    background: linear-gradient(145deg, #10273c, #0b1b2c);
-    border: 1px solid #28516a;
+    background: linear-gradient(145deg, #10283d, #0b1c2d);
+    border: 1px solid #285775;
     border-radius: 12px;
-    padding: 20px;
-    min-height: 115px;
-    box-shadow: inset 0 1px rgba(100, 225, 255, 0.08);
+    padding: 18px 20px;
+    min-height: 125px;
+    overflow: hidden;
 }
 
 [data-testid="stMetricLabel"] {
-    color: #94b8cb;
-    font-size: 0.82rem;
-    letter-spacing: 0.5px;
+    color: #a9c8d9 !important;
+    font-size: 12px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.6px;
+    white-space: normal !important;
 }
 
 [data-testid="stMetricValue"] {
-    color: #59e5f5;
-    font-weight: 750;
+    color: #45e0f2 !important;
+    font-size: clamp(22px, 2vw, 34px) !important;
+    font-weight: 800 !important;
+    overflow: visible !important;
 }
 
+[data-testid="stMetricValue"] > div {
+    overflow: visible !important;
+    text-overflow: clip !important;
+}
+
+/* CHART CONTAINERS */
 [data-testid="stVerticalBlockBorderWrapper"] > div {
-    background: rgba(13, 31, 49, 0.85);
-    border-color: #28465c !important;
+    background: #0a1a2b !important;
+    border-color: #1d3c53 !important;
     border-radius: 12px !important;
 }
 
-[data-testid="stExpander"] {
-    background: #10263a;
-    border: 1px solid #294c65;
-    border-radius: 10px;
-}
-
-div.stDownloadButton > button {
-    background: #123a50;
-    color: #70edff !important;
-    border: 1px solid #2e9db6;
-    border-radius: 8px;
-    font-weight: 650;
+/* DOWNLOAD BUTTONS */
+[data-testid="stDownloadButton"] button {
+    background: #12354a !important;
+    border: 1px solid #24cde4 !important;
+    color: #e9f5ff !important;
+    border-radius: 8px !important;
+    font-weight: 700 !important;
     width: 100%;
 }
 
-div.stDownloadButton > button:hover {
-    background: #17607a;
+[data-testid="stDownloadButton"] button:hover {
+    background: #176078 !important;
     color: white !important;
-    border-color: #68e9ff;
 }
 
-[data-testid="stSelectbox"] [data-baseweb="select"] > div,
-[data-testid="stNumberInput"] input {
-    background: #132c40 !important;
-    color: #e8f4ff !important;
-}
-
-[data-testid="stAlert"] {
-    border-radius: 10px;
-}
-
-.mc-eyebrow {
-    color: #51dff0;
-    font-size: 0.73rem;
-    font-weight: 700;
-    letter-spacing: 3px;
-    margin-bottom: 10px;
-}
-
-.mc-title {
-    font-size: clamp(2rem, 4vw, 3.2rem);
-    font-weight: 850;
-    letter-spacing: 1px;
-    color: #f1f9ff;
-    line-height: 1.15;
-}
-
-.mc-title span {
-    color: #50e3f3;
-}
-
-.mc-subtitle {
-    color: #9bb9cc;
-    font-size: 0.95rem;
-    margin: 12px 0 22px;
-}
-
-.mc-section {
-    color: #e7f5ff;
-    font-size: 1.12rem;
-    font-weight: 750;
-    letter-spacing: 1px;
-    border-left: 3px solid #46ddec;
+/* SECTION HEADERS */
+.section-heading {
+    font-family: 'Rajdhani', sans-serif;
+    color: #e9f5ff;
+    border-left: 3px solid #45e0f2;
     padding-left: 12px;
-    margin-top: 24px;
-    margin-bottom: 14px;
+    margin: 26px 0 16px 0;
+    font-size: 21px;
+    font-weight: 700;
+    letter-spacing: 1px;
 }
 
-.mc-tag {
+/* MAIN HERO */
+.hero-eyebrow {
+    color: #45e0f2;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 3px;
+}
+
+.hero-title {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: clamp(36px, 4vw, 60px);
+    font-weight: 700;
+    line-height: 1.1;
+    color: #f0f8ff;
+    margin: 12px 0;
+}
+
+.hero-title span {
+    color: #45e0f2;
+}
+
+.hero-subtitle {
+    color: #9ab9cc;
+    font-size: 14px;
+    margin-bottom: 22px;
+}
+
+.system-badge {
     display: inline-block;
-    border: 1px solid #297f96;
-    color: #63e1f1;
-    background: rgba(14, 83, 108, 0.25);
+    color: #45e0f2;
+    border: 1px solid #247d93;
+    background: #0b2938;
     border-radius: 5px;
-    padding: 7px 11px;
-    font-size: 0.72rem;
+    padding: 9px 13px;
+    font-size: 11px;
+    font-weight: 800;
     letter-spacing: 1px;
-    font-weight: 700;
-    margin-right: 8px;
-    margin-bottom: 10px;
+    margin: 0 8px 8px 0;
 }
 
-.mc-banner {
-    padding: 15px 18px;
+.status-banner {
+    padding: 16px 18px;
     border-radius: 9px;
-    margin-top: 14px;
-    margin-bottom: 14px;
+    font-weight: 800;
+    font-size: 14px;
+    margin-top: 16px;
+}
+
+.status-go {
+    color: #66f2c0;
+    background: #092a2b;
+    border: 1px solid #13a98b;
+}
+
+.status-no-go {
+    color: #ff9e9e;
+    background: #321b28;
+    border: 1px solid #dc5269;
+}
+
+.info-note {
+    color: #91adc1;
+    font-size: 12px;
+    margin-top: 12px;
+}
+
+.sidebar-title {
+    color: #45e0f2;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 24px;
     font-weight: 700;
-    letter-spacing: 0.4px;
+    margin-bottom: 18px;
 }
 
-.mc-go {
-    background: rgba(24, 154, 115, 0.12);
-    border: 1px solid #1b9c76;
-    color: #65e8b8;
-}
-
-.mc-nogo {
-    background: rgba(216, 72, 80, 0.12);
-    border: 1px solid #c84b59;
-    color: #ff8e9b;
-}
-
-.mc-panel-label {
-    color: #77cfe0;
-    font-size: 0.72rem;
-    letter-spacing: 1.5px;
-    font-weight: 700;
-}
-
-.mc-footer {
-    border-top: 1px solid #28465c;
-    margin-top: 30px;
-    padding: 20px;
+.footer {
     text-align: center;
-    color: #7899ad;
-    font-size: 0.75rem;
+    color: #7193a9;
+    border-top: 1px solid #23445a;
+    padding-top: 24px;
+    margin-top: 36px;
+    font-size: 11px;
     letter-spacing: 1px;
 }
 
-[data-testid="stCaptionContainer"] {
-    color: #91aec0;
+/* HIDE STREAMLIT DECORATIVE ELEMENTS */
+#MainMenu {
+    visibility: hidden;
 }
 
-hr {
-    border-color: #24435a;
+footer {
+    visibility: hidden;
 }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
-
-# ==========================================================
-# HEADER
-# ==========================================================
-
-st.markdown("""
-<div class="mc-eyebrow">
-    AGGIE DATA SCIENCE CLUB / FALL 2026 / FLIGHT SYSTEMS
-</div>
-<div class="mc-title">
-    LIFTOFF <span>MISSION CONTROL</span>
-</div>
-<div class="mc-subtitle">
-    Rocket Launch Intelligence &nbsp;•&nbsp;
-    Flight Readiness &nbsp;•&nbsp;
-    Trajectory Analytics
-</div>
-<div>
-    <span class="mc-tag">MISSION SYSTEMS ONLINE</span>
-    <span class="mc-tag">SIMULATION / DEMO MODE</span>
-</div>
-""", unsafe_allow_html=True)
-
-
-# ==========================================================
+# ============================================================
 # MISSION PRESETS
-# ==========================================================
+# ============================================================
 
 presets = [
     "Custom Mission",
@@ -271,15 +348,33 @@ preset_values = {
     },
 }
 
-st.sidebar.markdown("## 🚀 MISSION SETTINGS")
+# Initialize session state
+defaults = {
+    "rocket": "Falcon 9",
+    "mass": 10,
+    "weather": "Clear",
+    "wind_speed": 4.47,
+    "previous_preset": "Custom Mission",
+}
+
+for key, value in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
+
+# ============================================================
+# SIDEBAR CONTROLS
+# ============================================================
+
+st.sidebar.markdown(
+    '<div class="sidebar-title">🚀 MISSION SETTINGS</div>',
+    unsafe_allow_html=True,
+)
 
 selected_preset = st.sidebar.selectbox(
     "Mission Preset",
     presets,
+    key="selected_preset",
 )
-
-if "previous_preset" not in st.session_state:
-    st.session_state.previous_preset = "Custom Mission"
 
 if selected_preset != st.session_state.previous_preset:
     if selected_preset in preset_values:
@@ -291,11 +386,6 @@ if selected_preset != st.session_state.previous_preset:
         st.session_state["wind_speed"] = values["wind_speed"]
 
     st.session_state.previous_preset = selected_preset
-
-
-# ==========================================================
-# SIDEBAR
-# ==========================================================
 
 with st.sidebar.expander("🚀 Rocket Configuration", expanded=True):
     rocket = st.selectbox(
@@ -311,7 +401,7 @@ with st.sidebar.expander("🚀 Rocket Configuration", expanded=True):
         key="mass",
     )
 
-with st.sidebar.expander("🌦 Weather Environment", expanded=True):
+with st.sidebar.expander("🌤️ Weather Environment", expanded=True):
     weather = st.selectbox(
         "Weather Condition",
         ["Clear", "High Winds", "Storm"],
@@ -321,21 +411,24 @@ with st.sidebar.expander("🌦 Weather Environment", expanded=True):
     wind_speed = st.number_input(
         "Surface Wind Speed (m/s)",
         min_value=0.0,
-        value=4.47,
+        step=0.5,
         key="wind_speed",
     )
 
-st.sidebar.divider()
-st.sidebar.caption(
-    "LIFTOFF / FALL 2026\n\n"
-    "Mission Control Prototype\n\n"
-    "Demonstration data currently active."
+st.sidebar.markdown(
+    """
+<div style="margin-top:35px; border-top:1px solid #21455f; padding-top:20px;">
+    <p style="color:#8aafc4;font-size:12px;">LIFTOFF / FALL 2026</p>
+    <p style="color:#8aafc4;font-size:12px;">Mission Control System</p>
+    <p style="color:#8aafc4;font-size:12px;">Simulation preview active</p>
+</div>
+""",
+    unsafe_allow_html=True,
 )
 
-
-# ==========================================================
+# ============================================================
 # INPUT DATA
-# ==========================================================
+# ============================================================
 
 input_data = {
     "rocket": rocket,
@@ -344,39 +437,58 @@ input_data = {
     "wind": wind_speed,
 }
 
+# ============================================================
+# FLIGHT READINESS - SIMULATED ESTIMATES
+# ============================================================
 
-# ==========================================================
-# DEMO FLIGHT READINESS
-# ==========================================================
-
-if (
-    weather in ["High Winds", "Storm"]
-    or wind_speed >= 17.88
-):
+if weather in ["High Winds", "Storm"] or wind_speed >= 17.88:
     launch_status = "NO-GO"
     risk = 85
-
 elif wind_speed >= 11.18:
     launch_status = "NO-GO"
     risk = 55
-
 else:
     launch_status = "GO"
     risk = 10
 
 max_q = 35.0
 
-
-# ==========================================================
-# FLIGHT READINESS PANEL
-# ==========================================================
+# ============================================================
+# HERO HEADER
+# ============================================================
 
 st.markdown(
-    '<div class="mc-section">FLIGHT READINESS</div>',
+    """
+<div class="hero-eyebrow">
+    AGGIE DATA SCIENCE CLUB / FALL 2026 / FLIGHT SYSTEMS
+</div>
+
+<div class="hero-title">
+    LIFTOFF <span>MISSION CONTROL</span>
+</div>
+
+<div class="hero-subtitle">
+    Rocket Launch Intelligence • Flight Readiness • Trajectory Analytics
+</div>
+
+<div>
+    <span class="system-badge">MISSION SYSTEMS ONLINE</span>
+    <span class="system-badge">SIMULATION MODE</span>
+</div>
+""",
     unsafe_allow_html=True,
 )
 
-status_col, risk_col, q_col, wind_col = st.columns(4, gap="medium")
+# ============================================================
+# FLIGHT READINESS PANEL
+# ============================================================
+
+st.markdown(
+    '<div class="section-heading">FLIGHT READINESS</div>',
+    unsafe_allow_html=True,
+)
+
+status_col, risk_col, stress_col, wind_col = st.columns(4)
 
 with status_col:
     st.metric("LAUNCH STATUS", launch_status)
@@ -384,58 +496,59 @@ with status_col:
 with risk_col:
     st.metric("DELAY / FAILURE RISK", f"{risk}%")
 
-with q_col:
-    st.metric("MAX Q / DEMO", f"{max_q:.1f} kPa")
+with stress_col:
+    st.metric("MAX DYNAMIC PRESSURE", f"{max_q:.1f} kPa")
 
 with wind_col:
     st.metric("SURFACE WIND", f"{wind_speed:.2f} m/s")
 
-
 if launch_status == "GO":
     st.markdown(
-        '<div class="mc-banner mc-go">'
-        '● GO — CONDITIONS MEET DEMONSTRATION CRITERIA'
-        '</div>',
+        """
+<div class="status-banner status-go">
+    ● GO — CONDITIONS MEET SIMULATED LAUNCH CRITERIA
+</div>
+""",
         unsafe_allow_html=True,
     )
 else:
     st.markdown(
-        '<div class="mc-banner mc-nogo">'
-        '● NO-GO — CONDITIONS EXCEED DEMONSTRATION CRITERIA'
-        '</div>',
+        """
+<div class="status-banner status-no-go">
+    ● NO-GO — CONDITIONS EXCEED SIMULATED LAUNCH CRITERIA
+</div>
+""",
         unsafe_allow_html=True,
     )
 
-st.caption(
-    "Readiness status and risk are illustrative estimates, "
-    "not actual ML predictions."
-)
-
-
-# ==========================================================
-# MISSION INFORMATION
-# ==========================================================
-
 st.markdown(
-    '<div class="mc-section">ACTIVE MISSION PROFILE</div>',
+    '<div class="info-note">Readiness and risk are illustrative estimates pending live model integration.</div>',
     unsafe_allow_html=True,
 )
 
-profile_col, vehicle_col, payload_col = st.columns(3)
+# ============================================================
+# ACTIVE MISSION PROFILE
+# ============================================================
 
-with profile_col:
+st.markdown(
+    '<div class="section-heading">ACTIVE MISSION PROFILE</div>',
+    unsafe_allow_html=True,
+)
+
+mission_col, rocket_col, payload_col = st.columns(3)
+
+with mission_col:
     st.metric("MISSION PROFILE", selected_preset)
 
-with vehicle_col:
+with rocket_col:
     st.metric("LAUNCH VEHICLE", rocket)
 
 with payload_col:
     st.metric("PAYLOAD MASS", f"{mass} kg")
 
-
-# ==========================================================
-# FLIGHT BRIEFING
-# ==========================================================
+# ============================================================
+# FLIGHT BRIEFING EXPORT
+# ============================================================
 
 flight_briefing = {
     "mission_preset": selected_preset,
@@ -446,11 +559,11 @@ flight_briefing = {
     "launch_status": launch_status,
     "estimated_risk_percent": risk,
     "max_q_kpa": max_q,
-    "data_source": "Demo values only",
+    "data_source": "Simulated estimates; live models not connected",
 }
 
 st.markdown(
-    '<div class="mc-section">FLIGHT BRIEFING EXPORT</div>',
+    '<div class="section-heading">FLIGHT BRIEFING EXPORT</div>',
     unsafe_allow_html=True,
 )
 
@@ -460,175 +573,103 @@ with json_col:
     st.download_button(
         "⬇ EXPORT JSON BRIEFING",
         data=json.dumps(flight_briefing, indent=4),
-        file_name="flight_briefing.json",
+        file_name="liftoff_flight_briefing.json",
         mime="application/json",
-        width="stretch",
+        use_container_width=True,
     )
 
 with csv_col:
     st.download_button(
         "⬇ EXPORT CSV BRIEFING",
         data=pd.DataFrame([flight_briefing]).to_csv(index=False),
-        file_name="flight_briefing.csv",
+        file_name="liftoff_flight_briefing.csv",
         mime="text/csv",
-        width="stretch",
+        use_container_width=True,
     )
 
-
-# ==========================================================
-# CHART THEME
-# ==========================================================
-
-def style_mission_chart(fig):
-    fig.update_layout(
-        paper_bgcolor="#0d2032",
-        plot_bgcolor="#0d2032",
-        font=dict(
-            color="#bcd9e8",
-            family="Arial",
-            size=12,
-        ),
-        title_font=dict(
-            color="#e7f5ff",
-            size=15,
-        ),
-        margin=dict(l=25, r=25, t=55, b=40),
-        legend=dict(
-            bgcolor="rgba(0,0,0,0)",
-            font=dict(color="#bcd9e8"),
-        ),
-    )
-
-    fig.update_xaxes(
-        showgrid=True,
-        gridcolor="#24435a",
-        zerolinecolor="#24435a",
-    )
-
-    fig.update_yaxes(
-        showgrid=True,
-        gridcolor="#24435a",
-        zerolinecolor="#24435a",
-    )
-
-    if "scene" in fig.layout:
-        fig.update_layout(
-            scene=dict(
-                bgcolor="#0d2032",
-                xaxis=dict(
-                    backgroundcolor="#0d2032",
-                    gridcolor="#29475d",
-                    color="#bcd9e8",
-                    showbackground=True,
-                ),
-                yaxis=dict(
-                    backgroundcolor="#0d2032",
-                    gridcolor="#29475d",
-                    color="#bcd9e8",
-                    showbackground=True,
-                ),
-                zaxis=dict(
-                    backgroundcolor="#0d2032",
-                    gridcolor="#29475d",
-                    color="#bcd9e8",
-                    showbackground=True,
-                ),
-            )
-        )
-
-    return fig
-
-
-# ==========================================================
+# ============================================================
 # TRAJECTORY ANALYTICS
-# ==========================================================
+# ============================================================
 
 st.markdown(
-    '<div class="mc-section">FLIGHT TELEMETRY ANALYTICS</div>',
+    '<div class="section-heading">FLIGHT TELEMETRY ANALYTICS</div>',
     unsafe_allow_html=True,
 )
 
-st.caption(
-    "Trajectory visualizations currently use mock data "
-    "rather than live physics simulation outputs."
+st.markdown(
+    '<div class="info-note">Trajectory visualizations represent simulated flight paths.</div>',
+    unsafe_allow_html=True,
 )
 
 trajectory = generate_mock_trajectory()
 
-altitude_col, speed_col = st.columns(2, gap="medium")
+altitude_column, speed_column = st.columns(2, gap="large")
 
-with altitude_col:
+with altitude_column:
     with st.container(border=True):
         st.markdown(
-            '<div class="mc-panel-label">ALTITUDE PROFILE</div>',
+            '<div style="color:#45e0f2;font-size:12px;font-weight:800;letter-spacing:1px;">ALTITUDE PROFILE</div>',
             unsafe_allow_html=True,
         )
 
-        altitude_fig = create_altitude_distance_figure(trajectory)
-        altitude_fig = style_mission_chart(altitude_fig)
-
         st.plotly_chart(
-            altitude_fig,
+            create_altitude_distance_figure(trajectory),
             width="stretch",
             key="altitude-distance-chart",
+            config={"displaylogo": False},
         )
 
-with speed_col:
+with speed_column:
     with st.container(border=True):
         st.markdown(
-            '<div class="mc-panel-label">VELOCITY PROFILE</div>',
+            '<div style="color:#45e0f2;font-size:12px;font-weight:800;letter-spacing:1px;">VELOCITY PROFILE</div>',
             unsafe_allow_html=True,
         )
 
-        speed_fig = create_speed_time_figure(trajectory)
-        speed_fig = style_mission_chart(speed_fig)
-
         st.plotly_chart(
-            speed_fig,
+            create_speed_time_figure(trajectory),
             width="stretch",
             key="speed-time-chart",
+            config={"displaylogo": False},
         )
 
-
-# ==========================================================
-# 3D TRAJECTORY
-# ==========================================================
+# ============================================================
+# 3D TRAJECTORY TRACKING
+# ============================================================
 
 st.markdown(
-    '<div class="mc-section">3D FLIGHT PATH TRACKING</div>',
+    '<div class="section-heading">3D FLIGHT PATH TRACKING</div>',
     unsafe_allow_html=True,
 )
 
 with st.container(border=True):
     st.markdown(
-        '<div class="mc-panel-label">'
-        'TRAJECTORY VISUALIZATION / SIMULATED'
-        '</div>',
+        '<div style="color:#45e0f2;font-size:12px;font-weight:800;letter-spacing:1px;">TRAJECTORY VISUALIZATION / SIMULATED</div>',
         unsafe_allow_html=True,
     )
 
-    trajectory_fig = create_3d_trajectory_figure(trajectory)
-    trajectory_fig = style_mission_chart(trajectory_fig)
-
-    trajectory_fig.update_layout(height=440)
-
     st.plotly_chart(
-        trajectory_fig,
+        create_3d_trajectory_figure(trajectory),
         width="stretch",
         key="3d-trajectory-chart",
+        config={"displaylogo": False},
     )
 
-
-# ==========================================================
+# ============================================================
 # FOOTER
-# ==========================================================
+# ============================================================
 
-st.markdown("""
-<div class="mc-footer">
+st.markdown(
+    """
+<div class="footer">
     LIFTOFF MISSION CONTROL / AGGIE DATA SCIENCE CLUB / 2026
-    <br>
-    ROCKET LAUNCH INTELLIGENCE & TRAJECTORY VISUALIZATION
-    <br>
-    PROTOTYPE SYSTEM — DEMONSTRATION DATA
+    <div style="margin-top:7px;">
+        ROCKET LAUNCH INTELLIGENCE & TRAJECTORY VISUALIZATION
+    </div>
+    <div style="margin-top:7px;">
+        FLIGHT SYSTEMS / SIMULATION PREVIEW
+    </div>
 </div>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
