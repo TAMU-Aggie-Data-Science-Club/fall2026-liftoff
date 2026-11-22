@@ -278,3 +278,39 @@ Positive errors mean the simulation is higher or faster than the real flight.
 - **Max-Q is 3–14 s late.** A constant throttle cannot reproduce the real throttle-down around max-Q, so the simulated speed is too low early and catches up later.
 - **Telemetry limits.** Webcast speed is Earth-relative, which matches the non-rotating frame (A5). Speed and altitude are read off the on-screen display, so they carry some read-out error of their own.
 - **After MECO** the simulated first stage coasts to an apogee of about 140–155 km and falls back with no landing burn. This part is not validated.
+
+---
+
+## 9. ML Risk and Weather Adjustments
+
+`simulate_trajectory_with_risk()` in `src/physics/trajectory.py` connects the launch-delay model (`models/baseline_model.pkl`, see [`MODELING.md`](MODELING.md)) to the solver. "Success" here means the launch went up on time: $p_{\text{success}} = 1 - p_{\text{delay}}$. It returns the same DataFrame as `simulate_trajectory()`, with the adjustments it used in `df.attrs["risk"]`.
+
+```python
+from src.physics.trajectory import simulate_trajectory_with_risk
+
+df = simulate_trajectory_with_risk(payload_mass=10_000, wind_speed=5.0, temperature_c=28.0)
+df.attrs["risk"]   # {"risk_level": ..., "failure_probability": ..., "drag_scale": ..., "density_scale": ...}
+```
+
+### 9.1 Where the Prediction Comes From
+
+- If the caller passes `success_probability` (the dashboard may already have it), that value is used.
+- Otherwise `predict_success_probability()` loads the pickle, runs the `delay` model through `predict_delay_probability()` (the calibrated probability, [`MODELING.md`](MODELING.md) §5.1), and returns $1 - p_{\text{delay}}$. It uses the same inputs: payload mass, surface wind, temperature, precipitation, cloud cover, rocket type, and, optionally, `upper_wind_max` (the strongest high-altitude wind; `None` means unknown and is passed to the model as missing) and `weather_go_pct` (the "% GO" weather forecast the user entered, 0–100; `None` means no forecast yet, [`MODELING.md`](MODELING.md) §3). `wind_speed` and `upper_wind_max` are in m/s here and are converted to the model's km/h.
+- The pickle must exist (it is not committed; `python src/models/train_model.py` creates it). If it is missing, `FileNotFoundError` is raised.
+
+### 9.2 What Gets Adjusted
+
+| Input | Solver parameter | Rule |
+|---|---|---|
+| Failure probability $1 - p_{\text{success}}$ (= chance of a delay) | `drag_scale`, a multiplier on $C_D$ | below 0.05 → low risk, × 1.00. 0.05 to 0.20 → medium, × 1.10. 0.20 and above → high, × 1.25 |
+| Surface temperature $T_s$ | `density_scale`, a multiplier on $\rho$ at every altitude | $T_0 / T_s$ with $T_0 = 288.15$ K, clamped to 0.85–1.15. Cold air is denser. |
+| Surface wind | `wind_speed` | Passed straight through (§3.4) |
+
+Both multipliers are also plain arguments of `simulate_trajectory()`, so they can be set without the model.
+
+### 9.3 Limits
+
+- **The drag multipliers are scenario margins, not physics.** A higher predicted failure risk does not physically increase drag. The thresholds and multipliers in `RISK_LEVELS` are placeholders for the team to tune.
+- **The calibrated probability barely moves without a GO %.** With no weather forecast entered it stays near the recent delay rate (about 0.05 to 0.08), so most runs land in the medium band. Re-check the 0.05 and 0.20 thresholds against the calibrated output ([`MODELING.md`](MODELING.md) §5.1).
+- **The effect on the path is small**, because drag is a small force next to thrust and gravity. For a 10 t payload, high risk (× 1.25 drag) lowers the cutoff altitude by about 0.35 km and the apogee by about 1.4 km. Going from 35 °C to −5 °C raises max-Q by about 15% and changes the cutoff altitude by about 0.2 km.
+- **The density multiplier is applied at every altitude**, although real surface temperature mostly affects the lowest few kilometres. Ambient pressure, and so thrust, is left unchanged.
