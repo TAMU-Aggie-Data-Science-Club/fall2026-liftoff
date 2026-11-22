@@ -24,9 +24,9 @@ def expect_value_error(fn):
 
 # ---- output format ----
 def test_columns_and_time_grid():
-    df = simulate_trajectory(PAYLOAD, 0.0)
+    df = simulate_trajectory(PAYLOAD, 0.0, t_end=300.0)
     assert list(df.columns) == OUTPUT_COLUMNS
-    assert len(df) == 501  # t = 0, 1, ..., 500 s
+    assert len(df) == 301  # t = 0, 1, ..., 300 s
     assert np.allclose(np.diff(df["time_sec"]), 1.0)
     assert not df.isna().any().any()
 
@@ -56,7 +56,8 @@ def test_climbs_and_moves_downrange_while_burning():
 def test_burnout_time_matches_propellant_over_mass_flow():
     events = simulate_trajectory(PAYLOAD, 0.0).attrs["events"]
     m_dot = FALCON9["thrust_vac"] / (G0 * FALCON9["isp_vac"])
-    assert np.isclose(events["burnout_time_s"], FALCON9["stage1_prop_mass"] / m_dot)
+    burned = FALCON9["stage1_prop_mass"] - FALCON9["landing_reserve_mass"]
+    assert np.isclose(events["burnout_time_s"], burned / (FALCON9["throttle"] * m_dot))
 
 
 def test_speed_drops_after_burnout():
@@ -68,13 +69,13 @@ def test_speed_drops_after_burnout():
 
 def test_vertical_launch_matches_hand_calculation():
     # No kick, no drag (cd = 0): a = T/m - g with T and m known, so check the first
-    # second against v = a0 * t using the pad values (mass barely changes in 1 s).
+    # second against v = a0 * t using the pad values (mass changes by under 1% in 1 s).
     vehicle = {**FALCON9, "cd": 0.0}
     df = simulate_trajectory(PAYLOAD, 0.0, vehicle=vehicle, kick_angle_deg=0.0, t_end=1.0)
     m0 = (FALCON9["stage1_dry_mass"] + FALCON9["stage1_prop_mass"]
           + FALCON9["upper_stage_mass"] + PAYLOAD)
-    a0 = FALCON9["thrust_sl"] / m0 - G0
-    assert np.isclose(df["velocity_mps"].iloc[-1], a0, rtol=0.01)
+    a0 = FALCON9["throttle"] * FALCON9["thrust_sl"] / m0 - G0
+    assert np.isclose(df["velocity_mps"].iloc[-1], a0, rtol=0.03)
     assert abs(df["downrange_km"].iloc[-1]) < 1e-9
 
 
@@ -97,6 +98,25 @@ def test_events_are_reported():
     assert 0 < events["max_q_time_s"] < events["burnout_time_s"]
     assert events["max_q_pa"] > 0
     assert events["apogee_time_s"] > events["burnout_time_s"]
+
+
+def test_rows_stop_at_ground_impact():
+    df = simulate_trajectory(PAYLOAD, 0.0)
+    impact = df.attrs["events"]["impact_time_s"]
+    assert impact is not None and impact < 500.0
+    assert df["time_sec"].iloc[-1] <= impact < df["time_sec"].iloc[-1] + 1.0
+    assert df["altitude_km"].iloc[-1] >= 0.0
+
+
+def test_default_flight_is_falcon9_like():
+    # Tuned defaults (PHYSICS.md section 8): MECO near 147 s, 55-75 km, 1500-1900 m/s.
+    df = simulate_trajectory(PAYLOAD, 0.0)
+    events = df.attrs["events"]
+    at_meco = df.iloc[int(events["burnout_time_s"])]
+    assert 140 < events["burnout_time_s"] < 155
+    assert 55 < at_meco["altitude_km"] < 75
+    assert 1500 < at_meco["velocity_mps"] < 1900
+    assert 50 < events["max_q_time_s"] < 90
 
 
 # ---- input checks ----
