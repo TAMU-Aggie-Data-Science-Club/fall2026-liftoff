@@ -344,20 +344,24 @@ def risk_adjustments(success_probability=None, temperature_c=None):
 
 def predict_success_probability(payload_mass, wind_speed, temperature_c=15.0, precipitation=0.0,
                                 cloud_cover=0.0, rocket_type="Falcon 9", model_path=MODEL_PATH,
-                                upper_wind_max=None):
+                                upper_wind_max=None, weather_go_pct=None):
     """
-    Launch-success (on-time) probability, 1 - the saved "delay" model's output, or None
-    if the model file does not exist yet (run src/models/train_model.py to create it).
+    Launch-success (on-time) probability: 1 - the saved "delay" model's calibrated output.
+    Raises FileNotFoundError if the model file is missing (src/models/train_model.py
+    creates it).
 
     wind_speed and upper_wind_max (strongest high-altitude wind; None = unknown, passed to
     the model as missing) are in m/s here and are converted to the model's km/h. The other inputs use
     the model's own units: deg C, mm of precipitation, percent cloud cover.
+    weather_go_pct is the 45th Weather Squadron "% GO" forecast the user entered, 0-100;
+    None means no forecast yet (MODELING.md section 3).
     """
     model_path = Path(model_path)
     if not model_path.exists():
-        return None
+        raise FileNotFoundError(
+            f"{model_path} not found; run python src/models/train_model.py to create it")
     # Imported here so the solver itself does not need xgboost.
-    from src.models.train_model import predict_probability
+    from src.models.train_model import low_weather_go_flag, predict_delay_probability
 
     with open(model_path, "rb") as file:
         saved = pickle.load(file)
@@ -369,22 +373,21 @@ def predict_success_probability(payload_mass, wind_speed, temperature_c=15.0, pr
         "cloud_cover": cloud_cover,
         "payload_mass_kg": payload_mass,
         "rocket_type": rocket_type,
+        "low_weather_go": low_weather_go_flag(weather_go_pct),
     }])
-    booster = saved["models"]["delay"]["booster"]
-    delay_probability = float(predict_probability(booster, features, saved["rocket_categories"])[0])
+    delay_probability = float(predict_delay_probability(saved, features)[0])
     return 1.0 - delay_probability
 
 
 def simulate_trajectory_with_risk(payload_mass, wind_speed=0.0, *, success_probability=None,
                                   temperature_c=None, precipitation=0.0, cloud_cover=0.0,
-                                  upper_wind_max=None,
+                                  upper_wind_max=None, weather_go_pct=None,
                                   rocket_type="Falcon 9", model_path=MODEL_PATH, **solver_kwargs):
     """
     simulate_trajectory() with the flight path adjusted for ML-predicted risk and weather.
 
     Pass success_probability if the dashboard already has the model output. Otherwise it
-    is predicted here from models/baseline_model.pkl. With no prediction available the
-    risk level is "unknown" and only the temperature adjustment is applied.
+    is predicted here from models/baseline_model.pkl (see predict_success_probability).
 
     Returns the same DataFrame as simulate_trajectory(). The adjustments that were used
     are in df.attrs["risk"] (see risk_adjustments), next to df.attrs["events"].
@@ -392,7 +395,8 @@ def simulate_trajectory_with_risk(payload_mass, wind_speed=0.0, *, success_proba
     if success_probability is None:
         success_probability = predict_success_probability(
             payload_mass, wind_speed, 15.0 if temperature_c is None else temperature_c,
-            precipitation, cloud_cover, rocket_type, model_path, upper_wind_max=upper_wind_max)
+            precipitation, cloud_cover, rocket_type, model_path, upper_wind_max=upper_wind_max,
+            weather_go_pct=weather_go_pct)
     risk = risk_adjustments(success_probability, temperature_c)
     df = simulate_trajectory(payload_mass, wind_speed, density_scale=risk["density_scale"],
                              drag_scale=risk["drag_scale"], **solver_kwargs)

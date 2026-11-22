@@ -216,17 +216,21 @@ def test_cold_day_raises_max_q():
     assert cold.attrs["events"]["max_q_pa"] > warm.attrs["events"]["max_q_pa"]
 
 
-def test_missing_model_file_means_unknown_risk():
+def test_missing_model_file_is_an_error():
     missing = Path(tempfile.gettempdir()) / "liftoff_no_such_model.pkl"
-    assert predict_success_probability(PAYLOAD, 0.0, model_path=missing) is None
-    df = simulate_trajectory_with_risk(PAYLOAD, 0.0, model_path=missing, t_end=60.0)
-    assert df.attrs["risk"]["risk_level"] == "unknown"
+    for fn in (lambda: predict_success_probability(PAYLOAD, 0.0, model_path=missing),
+               lambda: simulate_trajectory_with_risk(PAYLOAD, 0.0, model_path=missing)):
+        try:
+            fn()
+        except FileNotFoundError:
+            continue
+        raise AssertionError("expected FileNotFoundError")
 
 
 def test_reads_prediction_from_a_saved_model():
     # A tiny stand-in for models/baseline_model.pkl, built the way train_model.py saves it.
     try:
-        from src.models.train_model import FEATURE_COLUMNS, train
+        from src.models.train_model import FEATURE_COLUMNS, platt, predict_probability, train
     except ImportError:
         return  # xgboost not installed: nothing to check
     rng = np.random.default_rng(0)
@@ -240,14 +244,26 @@ def test_reads_prediction_from_a_saved_model():
         "rocket_type": ["Falcon 9"] * rows,
         "is_delayed": rng.integers(0, 2, rows),
     })
-    saved = {"models": {"delay": {"booster": train(data, "is_delayed", ["Falcon 9"])}},
+    # Platt calibration with slope 0.5 shrinks the raw score toward 0.5, so this also
+    # checks that the calibrated probability (not the raw score) is what comes out.
+    booster = train(data, "is_delayed", ["Falcon 9"])
+    calibration = {"method": "platt", "slope": 0.5, "intercept": 0.0}
+    saved = {"models": {"delay": {"booster": booster, "calibration": calibration}},
              "feature_columns": FEATURE_COLUMNS, "rocket_categories": ["Falcon 9"]}
     with tempfile.TemporaryDirectory() as folder:
         model_path = Path(folder) / "baseline_model.pkl"
         model_path.write_bytes(pickle.dumps(saved))
         probability = predict_success_probability(PAYLOAD, 5.0, model_path=model_path)
+        with_go = predict_success_probability(PAYLOAD, 5.0, model_path=model_path,
+                                              weather_go_pct=40)
         df = simulate_trajectory_with_risk(PAYLOAD, 5.0, model_path=model_path, t_end=60.0)
+    features = pd.DataFrame([{"temperature_2m": 15.0, "wind_speed_10m": 18.0,
+                              "precipitation": 0.0, "cloud_cover": 0.0,
+                              "payload_mass_kg": PAYLOAD, "rocket_type": "Falcon 9"}])
+    raw = float(predict_probability(booster, features, ["Falcon 9"])[0])
+    assert np.isclose(1.0 - probability, platt(np.array([raw]), 0.5, 0.0)[0])
     assert 0.0 <= probability <= 1.0
+    assert 0.0 <= with_go <= 1.0
     assert np.isclose(df.attrs["risk"]["failure_probability"], 1.0 - probability)
     assert df.attrs["risk"]["risk_level"] in ("low", "medium", "high")
 

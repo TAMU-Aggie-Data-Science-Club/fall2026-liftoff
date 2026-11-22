@@ -295,8 +295,8 @@ df.attrs["risk"]   # {"risk_level": ..., "failure_probability": ..., "drag_scale
 ### 9.1 Where the Prediction Comes From
 
 - If the caller passes `success_probability` (the dashboard may already have it), that value is used.
-- Otherwise `predict_success_probability()` loads the pickle, runs the `delay` model, and returns $1 - p_{\text{delay}}$. It uses the same inputs: payload mass, surface wind, temperature, precipitation, cloud cover, rocket type, and, optionally, `upper_wind_max` (the strongest high-altitude wind; `None` means unknown and is passed to the model as missing). `wind_speed` and `upper_wind_max` are in m/s here and are converted to the model's km/h.
-- If the pickle does not exist (it is not committed; `python src/models/train_model.py` creates it), the risk level is `"unknown"` and only the temperature adjustment applies.
+- Otherwise `predict_success_probability()` loads the pickle, runs the `delay` model through `predict_delay_probability()` (the calibrated probability, [`MODELING.md`](MODELING.md) §5.1), and returns $1 - p_{\text{delay}}$. It uses the same inputs: payload mass, surface wind, temperature, precipitation, cloud cover, rocket type, and, optionally, `upper_wind_max` (the strongest high-altitude wind; `None` means unknown and is passed to the model as missing) and `weather_go_pct` (the "% GO" weather forecast the user entered, 0–100; `None` means no forecast yet, [`MODELING.md`](MODELING.md) §3). `wind_speed` and `upper_wind_max` are in m/s here and are converted to the model's km/h.
+- The pickle must exist (it is not committed; `python src/models/train_model.py` creates it). If it is missing, `FileNotFoundError` is raised.
 
 ### 9.2 What Gets Adjusted
 
@@ -311,6 +311,6 @@ Both multipliers are also plain arguments of `simulate_trajectory()`, so they ca
 ### 9.3 Limits
 
 - **The drag multipliers are scenario margins, not physics.** A higher predicted failure risk does not physically increase drag. The thresholds and multipliers in `RISK_LEVELS` are placeholders for the team to tune.
-- **The model's probabilities are not calibrated.** Training up-weights the rare failure class ([`MODELING.md`](MODELING.md)), which pushes predicted failure probabilities above the true rate of about 2%. Re-check the thresholds once the evaluation results are in.
+- **The calibrated probability barely moves without a GO %.** With no weather forecast entered it stays near the recent delay rate (about 0.05 to 0.08), so most runs land in the medium band. Re-check the 0.05 and 0.20 thresholds against the calibrated output ([`MODELING.md`](MODELING.md) §5.1).
 - **The effect on the path is small**, because drag is a small force next to thrust and gravity. For a 10 t payload, high risk (× 1.25 drag) lowers the cutoff altitude by about 0.35 km and the apogee by about 1.4 km. Going from 35 °C to −5 °C raises max-Q by about 15% and changes the cutoff altitude by about 0.2 km.
 - **The density multiplier is applied at every altitude**, although real surface temperature mostly affects the lowest few kilometres. Ambient pressure, and so thrust, is left unchanged.
