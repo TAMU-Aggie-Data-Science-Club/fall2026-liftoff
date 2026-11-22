@@ -133,6 +133,36 @@ def test_rejects_bad_time_settings():
     expect_value_error(lambda: simulate_trajectory(PAYLOAD, 0.0, dt=0.0))
 
 
+# ---- edge cases (see also src/physics/solver_benchmark.py) ----
+def test_rejects_non_finite_inputs():
+    expect_value_error(lambda: simulate_trajectory(float("nan"), 0.0))
+    expect_value_error(lambda: simulate_trajectory(PAYLOAD, float("inf")))
+
+
+def test_rejects_zero_fuel():
+    no_fuel = {**FALCON9, "stage1_prop_mass": 0.0, "landing_reserve_mass": 0.0}
+    expect_value_error(lambda: simulate_trajectory(PAYLOAD, 0.0, vehicle=no_fuel))
+
+
+def test_almost_no_fuel_still_returns_rows():
+    vehicle = {**FALCON9, "landing_reserve_mass": 395_000.0}  # burns for about 0.3 s
+    df = simulate_trajectory(PAYLOAD, 0.0, vehicle=vehicle)
+    assert len(df) >= 1 and not df.isna().any().any()
+
+
+def test_crash_during_burn_stops_cleanly():
+    df = simulate_trajectory(PAYLOAD, 0.0, kick_angle_deg=90.0)
+    events = df.attrs["events"]
+    assert events["impact_time_s"] is not None and events["burnout_time_s"] is None
+    assert df["time_sec"].iloc[-1] <= events["impact_time_s"]
+
+
+def test_extreme_wind_gives_finite_output():
+    for wind in (-600.0, -100.0, 100.0, 600.0):
+        df = simulate_trajectory(PAYLOAD, wind)
+        assert np.isfinite(df.to_numpy()).all()
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in sorted(globals().items()) if n.startswith("test_")]
     for name, fn in tests:

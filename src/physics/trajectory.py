@@ -58,33 +58,52 @@ KICK_START_S = 10.0     # end of the vertical rise [s]
 KICK_DURATION_S = 10.0  # length of the pitch-kick ramp [s]
 KICK_ANGLE_DEG = 0.56   # how far the thrust tilts from vertical during the kick [deg]
 
+# Lowest altitude passed to the atmosphere model (see _derivatives) [m]
+MIN_ATMOSPHERE_ALTITUDE_M = -1_000.0
+
+# Solver settings, checked by src/physics/solver_benchmark.py.
+RTOL = 1e-6                     # relative tolerance [-]
+ATOL = 1e-3                     # absolute tolerance [m, m/s, kg]
+MAX_STEP_S = 5.0                # longest step, so thin atmosphere layers are not skipped [s]
+MAX_DERIVATIVE_CALLS = 200_000  # safety stop; a normal flight needs a few thousand
+
 OUTPUT_COLUMNS = ["time_sec", "altitude_km", "downrange_km", "velocity_mps"]
 
 
-def _thrust_angle(t, vx, vy, kick_start, kick_duration, kick_angle):
+def _thrust_angle(phase, t, vx, vy, kick_start, kick_duration, kick_angle):
     """Thrust direction theta [rad] above the horizontal (PHYSICS.md section 4)."""
-    if t < kick_start:
+    if phase == "vertical":
         return np.pi / 2
-    if t < kick_start + kick_duration:
+    if phase == "kick":
         return np.pi / 2 - kick_angle * (t - kick_start) / kick_duration
-    return np.arctan2(vy, vx)
+    return np.arctan2(vy, vx)  # "turn": thrust along the velocity vector
 
 
-def _derivatives(t, y, burning, vehicle, ref_area, m_dot, wind_speed, guidance,
-                 atmosphere_model, gravity_model):
-    """Right-hand side f(t, y) -> dy/dt of the equations of motion."""
+def _derivatives(t, y, phase, vehicle, ref_area, m_dot, wind_speed, guidance,
+                 atmosphere_model, gravity_model, calls):
+    """
+    Right-hand side f(t, y) -> dy/dt of the equations of motion.
+
+    phase is "vertical", "kick" or "turn" while the engines burn, and "coast" after.
+    """
+    calls[0] += 1
+    if calls[0] > MAX_DERIVATIVE_CALLS:
+        raise RuntimeError("trajectory integration is not converging; stopped to avoid "
+                           "an endless run")
     _, h, vx, vy, m = y
-    _, p, rho, _ = atmosphere(h, atmosphere_model)
+    # The solver's trial steps can overshoot below the pad before the ground-impact
+    # event pulls them back. Clamp so the atmosphere model never sees a deep hole.
+    _, p, rho, _ = atmosphere(max(h, MIN_ATMOSPHERE_ALTITUDE_M), atmosphere_model)
 
     # Drag acts on the velocity relative to the air, so subtract the wind.
     drag_x, drag_y = drag_force(vx - wind_speed, vy, rho, vehicle["cd"], ref_area)
     ax, ay = drag_x / m, drag_y / m - gravity(h, gravity_model)
 
-    if not burning:
+    if phase == "coast":
         return [vx, vy, ax, ay, 0.0]
 
     force = vehicle["throttle"] * thrust(p, vehicle["thrust_sl"], vehicle["thrust_vac"])
-    theta = _thrust_angle(t, vx, vy, *guidance)
+    theta = _thrust_angle(phase, t, vx, vy, *guidance)
     return [vx, vy, ax + force * np.cos(theta) / m, ay + force * np.sin(theta) / m, -m_dot]
 
 
@@ -125,13 +144,23 @@ def simulate_trajectory(
     in df.attrs["events"]: burnout_time_s, max_q_time_s, max_q_pa, apogee_time_s,
     apogee_km, impact_time_s (None when that event did not happen before t_end).
 
-    Raises ValueError for bad inputs or if thrust/weight <= 1 on the pad.
+    Raises ValueError for bad inputs (negative or non-finite numbers, no propellant to
+    burn, thrust/weight <= 1 on the pad) and RuntimeError if the integration fails.
     """
     vehicle = FALCON9 if vehicle is None else vehicle
+    numbers = {"payload_mass": payload_mass, "wind_speed": wind_speed,
+               "kick_angle_deg": kick_angle_deg, "kick_start_s": kick_start_s,
+               "kick_duration_s": kick_duration_s, "site_altitude": site_altitude,
+               "t_end": t_end, "dt": dt}
+    for name, value in numbers.items():
+        if not np.isfinite(value):
+            raise ValueError(f"{name} must be a finite number")
     if payload_mass < 0:
         raise ValueError("payload_mass cannot be negative")
     if t_end <= 0 or dt <= 0:
         raise ValueError("t_end and dt must be positive")
+    if kick_start_s < 0 or kick_duration_s <= 0:
+        raise ValueError("kick_start_s must be >= 0 and kick_duration_s must be > 0")
 
     throttle = vehicle["throttle"]
     burned_mass = vehicle["stage1_prop_mass"] - vehicle["landing_reserve_mass"]
@@ -155,9 +184,11 @@ def simulate_trajectory(
         raise ValueError("thrust-to-weight ratio on the pad is <= 1; the vehicle cannot lift off")
 
     guidance = (kick_start_s, kick_duration_s, np.radians(kick_angle_deg))
-    args = (vehicle, ref_area, m_dot, wind_speed, guidance, atmosphere_model, gravity_model)
+    calls = [0]  # shared counter of derivative evaluations (see MAX_DERIVATIVE_CALLS)
+    args = (vehicle, ref_area, m_dot, wind_speed, guidance, atmosphere_model, gravity_model,
+            calls)
     times = np.arange(0.0, t_end + dt / 2, dt)
-    options = {"rtol": 1e-8, "atol": 1e-6, "max_step": 1.0}
+    options = {"rtol": RTOL, "atol": ATOL, "max_step": MAX_STEP_S}
 
     def ground_impact(t, y, *_):
         return y[1] - site_altitude
@@ -169,32 +200,52 @@ def simulate_trajectory(
     apogee.direction = -1
 
     # Phase 1: powered flight up to burnout. m_dot is constant, so burnout (m = m_dry)
-    # happens at exactly t_burn and no event search is needed.
+    # happens at exactly t_burn and no event search is needed. The burn is integrated
+    # in up to three pieces (vertical rise, pitch kick, gravity turn) so that no solver
+    # step crosses a jump in the thrust direction.
     t_stop = min(t_burn, t_end)
-    powered = solve_ivp(_derivatives, (0.0, t_stop), [0.0, site_altitude, 0.0, 0.0, m0],
-                        dense_output=True, events=[ground_impact],
-                        args=(True, *args), **options)
-    if not powered.success:
-        raise RuntimeError(f"powered-flight integration failed: {powered.message}")
-    crashed = powered.t_events[0].size > 0  # flew into the ground with the engines on
-    t_out = times[times <= powered.t[-1]]
-    y_out = powered.sol(t_out)
-    events = {"burnout_time_s": t_burn if t_burn <= t_end and not crashed else None,
-              "apogee_time_s": None, "apogee_km": None,
-              "impact_time_s": float(powered.t_events[0][0]) if crashed else None}
+    kick_end_s = kick_start_s + kick_duration_s
+    segments = [("vertical", 0.0, min(kick_start_s, t_stop)),
+                ("kick", kick_start_s, min(kick_end_s, t_stop)),
+                ("turn", kick_end_s, t_stop)]
+    state = [0.0, site_altitude, 0.0, 0.0, m0]
+    t_out, y_out = np.empty(0), np.empty((5, 0))
+    crashed = False  # True if the rocket flies into the ground with the engines on
+    events = {"burnout_time_s": None, "apogee_time_s": None, "apogee_km": None,
+              "impact_time_s": None}
+    for phase, t_start, t_finish in segments:
+        if t_finish <= t_start:
+            continue
+        powered = solve_ivp(_derivatives, (t_start, t_finish), state, dense_output=True,
+                            events=[ground_impact], args=(phase, *args), **options)
+        if not powered.success:
+            raise RuntimeError(f"powered-flight integration failed: {powered.message}")
+        after_start = times >= t_start if t_start == 0.0 else times > t_start
+        t_segment = times[after_start & (times <= powered.t[-1])]
+        if t_segment.size:  # a very short piece may contain no output time
+            t_out = np.concatenate([t_out, t_segment])
+            y_out = np.concatenate([y_out, powered.sol(t_segment).reshape(5, -1)], axis=1)
+        state = powered.y[:, -1]
+        if powered.t_events[0].size:
+            crashed = True
+            events["impact_time_s"] = float(powered.t_events[0][0])
+            break
+    if t_burn <= t_end and not crashed:
+        events["burnout_time_s"] = t_burn
 
     # Phase 2: coast with thrust off, starting from the burnout state. A second
     # solve_ivp call handles the jump in the equations at burnout more cleanly than
     # one call (PHYSICS.md section 6.3).
     if t_burn < t_end and not crashed:
-        coast = solve_ivp(_derivatives, (t_burn, t_end), powered.y[:, -1],
+        coast = solve_ivp(_derivatives, (t_burn, t_end), state,
                           dense_output=True, events=[apogee, ground_impact],
-                          args=(False, *args), **options)
+                          args=("coast", *args), **options)
         if not coast.success:
             raise RuntimeError(f"coast integration failed: {coast.message}")
         t_coast = times[(times > t_burn) & (times <= coast.t[-1])]
-        t_out = np.concatenate([t_out, t_coast])
-        y_out = np.concatenate([y_out, coast.sol(t_coast)], axis=1)
+        if t_coast.size:
+            t_out = np.concatenate([t_out, t_coast])
+            y_out = np.concatenate([y_out, coast.sol(t_coast).reshape(5, -1)], axis=1)
         if coast.t_events[0].size:
             events["apogee_time_s"] = float(coast.t_events[0][0])
             events["apogee_km"] = float(coast.y_events[0][0][1]) / 1000.0

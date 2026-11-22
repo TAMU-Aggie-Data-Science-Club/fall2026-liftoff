@@ -56,7 +56,7 @@ Checks `src/physics/atmosphere.py` against published US Standard Atmosphere 1976
 
 ---
 
-## 4. `test_trajectory.py` — Trajectory Solver (15 checks)
+## 4. `test_trajectory.py` — Trajectory Solver (20 checks)
 
 Checks `src/physics/trajectory.py`, mainly `simulate_trajectory(payload_mass, wind_speed)`.
 
@@ -71,6 +71,9 @@ Checks `src/physics/trajectory.py`, mainly `simulate_trajectory(payload_mass, wi
 | Events | Max-Q comes before burnout and apogee after it |
 | Tuned defaults | The default flight looks like a Falcon 9 first stage: MECO near 147 s at 55–75 km and 1500–1900 m/s (PHYSICS.md §8) |
 | Errors | Negative payload, a vehicle too heavy to lift off, and non-positive `t_end`/`dt` raise `ValueError` |
+| Edge cases | NaN/inf inputs and zero fuel raise `ValueError`. Almost no fuel, a crash during the burn, and ±600 m/s wind still return clean, finite rows. |
+
+For speed and a wider stress test, run `python -m src.physics.solver_benchmark`. It runs 50 extreme input combinations and fails if any run crashes or takes 1 s or longer.
 
 ---
 
