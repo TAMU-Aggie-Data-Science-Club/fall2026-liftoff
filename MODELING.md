@@ -1,62 +1,63 @@
 # Modeling Overview
 
-How the launch-outcome models are built, trained, and evaluated. This file describes the code on `main` unless a section says otherwise.
+How the launch-delay model is built, trained, and evaluated. This file describes the code on `main` unless a section says otherwise.
 
-**Status (2026-11-10):**
-- Baseline training: merged to `main` (PR #48, `src/models/train_model.py`).
-- Evaluation and tuning: proposed in PR #49 (`src/models/evaluate.py`), **not yet merged or run end to end**.
-- Results (§7) and feature importance (§8): **placeholders** until the evaluation runs on the full dataset, including `spacex_launch_updates.csv`.
-- Upper-level winds: **not used by the model yet**. See §9.
+**Status (2026-11-17):**
+- **Reframed: the model predicts on time vs delayed.** The success/failure model was dropped; there is no failure class (§1, §2).
+- Baseline training: `src/models/train_model.py` (PR #48).
+- Evaluation and tuning: `src/models/evaluate.py` (PR #49), **not yet run end to end**.
+- RandomForest comparison model: `src/models/train_random_forest.py` on `data/random-forest` (§5.1).
+- Results (§7) and feature importance (§8): **placeholders** until the model techniques are implemented and compared on the same data.
+- Upper-level winds: in the feature table; used by the RandomForest, not yet by XGBoost on `main`. See §9.1.
 
 ---
 
-## 1. Models
+## 1. Model
 
-Two binary XGBoost classifiers are trained by one script and saved together in `models/baseline_model.pkl`.
+One binary XGBoost classifier, saved in `models/baseline_model.pkl`. A launch is either **on time** (successfully launched within the delay window) or **delayed**.
 
 | Model | Target column | Label = 1 means | Event we care about catching |
 |---|---|---|---|
-| `success` | `mission_success` | Launch succeeded | Failures (label 0) |
-| `delay` | `is_delayed` | Launch was delayed > 24 h | Delays (label 1) |
+| `delay` | `is_delayed` | Launch lifted off more than its provider's threshold after its baseline target: 72 h for SpaceX, 7 days for others (§2) | Delays (label 1) |
 
-Both models output the probability that the label is 1. For the success model, the failure risk is `1 − p`.
+The model outputs the probability of a delay; the on-time probability is `1 − p`. Read it through `predict_delay_probability()`, which applies the calibration in §5.1. The raw XGBoost score from `predict_probability()` only ranks launches; it is not a usable probability.
 
-> **Note:** [`DELIVERABLES.md`](DELIVERABLES.md) and [`README.md`](README.md) describe the delay model as a *regressor* for delay hours. The implemented model is a *classifier* (delayed or not). Those docs have not been updated to match.
+**Why no failure class (2026-11-17):** the old `success` model predicted `mission_success`, which had 15 failures in 743 launches. The project now asks whether a launch happens on schedule, not whether it blows up. Amos-6, the only vehicle that exploded before launching, stays excluded. The 14 in-flight failures all lifted off, so they are labelled by timing like any other launch. They can be dropped later if the team decides to.
 
-The pickle holds a dict with `models` (one XGBoost `Booster` per target), `feature_columns`, `rocket_categories`, `params`, `num_boost_round`, and `delay_definition`. Use the saved `rocket_categories` when preparing features for prediction so the categorical encoding matches training.
+The pickle holds a dict with `models` (`{"delay": {...}}`, one XGBoost `Booster` plus its `calibration`: method, slope, intercept, and the launches it was fitted on), `feature_columns`, `rocket_categories`, `params`, `num_boost_round`, and `delay_definition`. Use the saved `rocket_categories` when preparing features for prediction so the categorical encoding matches training.
 
 ---
 
 ## 2. Labels
 
-### 2.1 Mission success
-
-From the Launch Library 2 launch status in `fetch_spacex.py`:
-
-| LL2 status | `mission_success` |
-|---|---|
-| Success | 1 |
-| Failure, Partial Failure | 0 |
-| Anything else (TBD, Go, In Flight, …) | missing → launch dropped from this model |
-
-Pad failures (for example, Amos-6 in 2016) count as failures on `main`. A follow-up commit on `data/ml-baseline` (`ba62d46`) excludes Amos-6, but it has not been merged.
-
-### 2.2 Launch delay
+### 2.1 Launch delay (the only label)
 
 There is no delay field in the API, so `train_model.py` derives one from LL2 schedule notes saved in `data/raw/spacex_launch_updates.csv` (written by `fetch_spacex.py`).
 
-1. Keep notes that announce a schedule (keywords: *target, NET, delay, slip, moved, scheduled, recycle, revert*) and contain a date, for example "Now targeting Nov 05 at 02:35 UTC".
+1. Keep notes that announce a schedule and contain a full date (month and day), for example "Now targeting Nov 05 at 02:35 UTC". A note qualifies if it has a schedule keyword (*target, NET, delay, slip, moved, scheduled, recycle, revert*), or a launch-date phrase (*GO for, window, launch on, attempt, opportunity, launch time, T-0, confirmed, planned for, pushing to, moving to, back on, expected to*) as long as it does not cancel a date (*no longer, standing down, no launch, not in position*). Month-only notes such as "NET April" are not used, because they give no exact day.
 2. Parse the target date and time. If a note gives a day but no time, the whole day counts as on time. If it gives no year, the year is inferred from when the note was posted.
 3. **Baseline:** the latest target announced in a note posted **at least 7 days** before the actual launch.
-4. **Delayed:** the actual launch came **more than 24 hours** after the baseline.
-5. Launches with no qualifying note have a missing label and are excluded from the delay model. This covers most launches before about 2020.
+4. **Delayed:** the actual launch came more than the provider's threshold after the baseline: **72 hours (3 days) for SpaceX, 7 days for NASA and every other provider**. Otherwise it is **on time**, whatever happened after liftoff.
+5. Launches with no qualifying note have a missing label and are excluded from the delay model. On the 2026-11-17 fetch, 367 of 745 launches have a label (80 delayed, 22%), all from 2020-12-19 onward. After the missing-data policy (§3), 327 (72 delayed) are usable once `upper_wind_max_kmh` is an input (20 lack a payload mass, 20 lack the upper wind). Most unlabelled launches since 2021 have only early notes with no date in the text ("Added launch.", "GO for launch."), which no parser can recover; a shorter baseline window would add launches but lose most of the delays, so it stays at 7 days.
 
 | Constant | Value | Meaning |
 |---|---|---|
 | `DELAY_BASELINE_DAYS` | 7 | How far before launch the baseline note must be posted |
-| `DELAY_THRESHOLD_HOURS` | 24 | Slip beyond the baseline that counts as delayed |
+| `DELAY_THRESHOLD_HOURS_BY_PROVIDER` | `{"SpaceX": 72}` | Slip beyond the baseline that counts as delayed, per provider |
+| `DEFAULT_DELAY_THRESHOLD_HOURS` | 168 (7 days) | Threshold for NASA and any provider not listed above |
 
-The team agreed on these values on 2026-11-08, and they are open to change.
+**The delay window depends on the launch provider** (PM decision, 2026-11-17):
+
+| Provider | Baseline | Delay threshold | Status |
+|---|---|---|---|
+| SpaceX | Latest target announced ≥ 7 days before launch | > 72 h (3 days) | In use (was 24 h, set 2026-11-08) |
+| NASA and all other providers | Same rule | > 7 days | Defined, but no such launches are fetched yet |
+
+`delay_threshold()` reads a `launch_provider` column when the feature table has one. Launches without one count as SpaceX, because `fetch_spacex.py` only fetches SpaceX. A fetcher that adds other providers must also fill `launch_provider`.
+
+The 3-day and 7-day figures are **team definitions**. We found no published SpaceX rule that defines a delay. The 7-day threshold is separate from the 7-day baseline rule (`DELAY_BASELINE_DAYS`); they just happen to match.
+
+Amos-6 (exploded on the pad in 2016, never launched) is excluded from training.
 
 ---
 
@@ -68,11 +69,13 @@ The team agreed on these values on 2026-11-08, and they are open to change.
 | `wind_speed_10m` | numeric | km/h | Open-Meteo (surface wind) |
 | `precipitation` | numeric | mm | Open-Meteo |
 | `cloud_cover` | numeric | % | Open-Meteo |
-| `payload_mass_kg` | numeric | kg | LL2. Sum of payload masses × amount. Missing if any payload's mass is unknown |
+| `payload_mass_kg` | numeric | kg | GCAT `OrbPay` (tonnes × 1000), matched to each LL2 launch by time. Missing when GCAT has no real value (see [`DATA.md`](DATA.md) §8) |
 | `rocket_type` | categorical | — | LL2 rocket configuration name |
 
+These are XGBoost's inputs on `main`. The RandomForest also uses `upper_wind_max_kmh`, and `feature/add-windspeed` adds it to XGBoost (§9.1).
+
 - Weather units are Open-Meteo's defaults, since `fetch_weather.py` doesn't request other units. The m/s conversion in `clean_data.py` only affects `data/interim/cleaned_launches.csv`, which the model does not read.
-- Missing numeric values are passed to XGBoost as `NaN`, which it handles natively. No imputation is done.
+- **Missing-data policy ([`DATA.md`](DATA.md) §2):** a launch missing any numeric model input is left out of training and evaluation (`usable_launches()`, which keys on `NUMERIC_FEATURES`). Missing `rocket_type` is kept. No imputation is done. At prediction time a missing number is still passed to the model as `NaN`; whether predictions should refuse instead is an open question.
 - `rocket_type` uses XGBoost's native categorical support. Rocket types not seen in training become missing at prediction time.
 
 ---
@@ -86,12 +89,7 @@ build_features.py → data/processed/ml_features.csv   (left join on launch_id)
 train_model.py    → models/baseline_model.pkl
 ```
 
-`build_features.py` checks that each weather row matches its launch's time and pad coordinates, then adds two derived columns. **The model doesn't use either one yet:**
-
-| Column | Why it isn't a model input |
-|---|---|
-| `wind_speed_ratio` | Computed as `high_altitude_wind_assumed / wind_speed_10m`, but on `main` `high_altitude_wind_assumed` is a placeholder copy of the surface wind, so the ratio is always 1. |
-| `payload_ratio` | Needs a `max_payload_capacity_kg` column, which no source provides yet, so it is empty. |
+`build_features.py` checks that each weather row matches its launch's time and pad coordinates. It used to add two derived columns, `wind_speed_ratio` (always 1, built from the placeholder copy of surface wind `high_altitude_wind_assumed`) and `payload_ratio` (always empty, no capacity column). All three were removed on 2026-11-18 because they carried no information; [`DATA.md`](DATA.md) §7.2 explains why neither ratio was rebuilt from real data.
 
 ---
 
@@ -108,18 +106,40 @@ train_model.py    → models/baseline_model.pkl
 | Class weighting | Each class weighted so both contribute equally in total, which upweights the rare class |
 | Decision threshold | 0.5 |
 
-The script prints a quick check before saving: it trains on the oldest 80% of labelled launches and reports accuracy, events caught, false alarms, and ROC-AUC on the newest 20%. The **saved** model is then retrained on all labelled launches.
+The script prints a quick check before saving: it trains on older launches and reports accuracy, events caught, false alarms, ROC-AUC, and the mean probability and Brier score before and after calibration on the newest ones (holdout rule in §6). The **saved** model is then retrained on all labelled launches.
+
+### 5.1 Probability calibration
+
+**Why:** the raw scores are far too high. On the 2025-26 launches they averaged 0.34 while 11% were actually delayed. Two causes add up: the class weighting trains the model as if delays and on-time launches were equally common, and delays fell from about 30% (2021-24) to about 10% (2025-26), so the model learned from years with more delays. `trajectory.py` (on `physics/ml-solver-fusion`) maps the probability to a risk level at 0.05 and 0.20, so with raw scores nearly every simulation came out "high".
+
+**How (decided 2026-11-18):** Platt scaling, a logistic curve on the logit of the raw score, `p = 1 / (1 + exp(-(slope · logit(raw) + intercept)))`. It is fitted on the launches of the last 12 months (`CALIBRATION_MONTHS`). Each of those launches is scored by a model trained only on earlier launches (retrained every 20 launches, `CALIBRATION_STEP`), so the curve sees honest out-of-sample scores. The slope and intercept are stored in the pickle. A positive slope keeps the order of the raw scores, so ROC-AUC is unchanged. The fit uses numpy only (no new dependency); `tests/test_calibration.py` checks it.
+
+**Methods compared** (2026-11-18, on 2025-26 launches: 148 launches, 16 delays, actual rate 0.108; each method fitted only on earlier launches):
+
+| Method | Mean predicted | Brier | Log loss |
+|---|---|---|---|
+| Raw score (before) | 0.336 | 0.189 | 0.560 |
+| Undo the class weights | 0.192 | 0.128 | 0.405 |
+| Undo the weights, then shift to the last-12-month rate | 0.161 | 0.119 | 0.392 |
+| **Platt, last 12 months (chosen)** | 0.185 | **0.104** | **0.362** |
+| Platt, last 24 months | 0.233 | 0.114 | 0.397 |
+| No model: quote the last-12-month delay rate | 0.199 | 0.106 | 0.369 |
+
+**Cautions:**
+
+- **The calibrated output is nearly constant.** On the 2026-11-17 data the curve is fitted on 92 launches with only 6 delays, and the raw scores barely relate to those delays, so the slope is about 0.05. Every launch gets 0.05 to 0.08, close to the recent delay rate, whatever the weather. This is the honest result of a model with little signal (ROC-AUC about 0.5, [`DATA.md`](DATA.md) §7.7), not a bug. If a later model ranks launches better, the slope will rise on its own.
+- **It is only barely better than quoting the recent delay rate** (Brier 0.104 vs 0.106).
+- **It lags a falling delay rate.** Fitted on the past, it still overshoots when delays keep falling (0.185 vs 0.108 above).
+- **With so few delays the fit can move a lot** from one data refresh to the next. Check the slope that `train_model.py` prints.
 
 ---
 
 ## 6. Validation method
 
-*Proposed in PR #49 (`src/models/evaluate.py`). Not yet merged.*
+`src/models/evaluate.py` (PR #49):
 
-For each model:
-
-1. Sort labelled launches by date and hold out the **newest 20%**. They are not used for tuning.
-2. **Grid search** on the older 80% using **5-fold `TimeSeriesSplit`**. Each fold trains on the past and tests on the future.
+1. Sort labelled launches by date and hold out the **newest launches**. They are not used for tuning. The holdout starts at the newest 20%. If that contains fewer than `MIN_TEST_EVENTS` (10) delays, the cutoff moves earlier until it does, up to `MAX_HOLDOUT_FRACTION` (40%). Time order is kept, so the model never trains on launches newer than the ones it is tested on. If 40% still has too few delays, the script prints a warning. Both constants are in `train_model.py`, and both scripts use the same `holdout_split()`.
+2. **Grid search** on the training split (every launch older than the holdout) using **5-fold `TimeSeriesSplit`**. Each fold trains on the past and tests on the future.
 
    | Parameter | Values |
    |---|---|
@@ -129,40 +149,40 @@ For each model:
 
    Selection rule: highest mean ROC-AUC across folds where it is defined (both classes present). If no fold has a defined ROC-AUC, it falls back to the §5 settings.
 3. Re-run cross-validation with the chosen settings.
-4. Score the held-out newest 20% once.
-5. Compute feature importance by **gain** on the 80% training split.
+4. Score the holdout once.
+5. Compute feature importance by **gain** on the training split.
 
-Precision, recall, and F1 treat the **event** as the positive class: failures for the success model, delays for the delay model. Output goes to `reports/model_evaluation.json`.
+Metrics, reported per fold and on the holdout: **accuracy, precision, recall, F1, ROC-AUC and PR-AUC** (average precision). Precision, recall, F1 and PR-AUC treat a **delay** as the positive class. Delays are the minority class, so accuracy alone is misleading: a model that always says "on time" scores high. Read accuracy alongside precision and recall. Output goes to `reports/model_evaluation.json`.
 
 ---
 
 ## 7. Results
 
-> **Placeholder.** Fill these in from `reports/model_evaluation.json` once PR #49 is merged and run. The delay model is waiting on `data/raw/spacex_launch_updates.csv`.
+> **Placeholder.** Filled in once the model techniques (XGBoost, RandomForest, and any third) are implemented and run on the same labels and holdout, so their metrics can be compared side by side.
 
-| Model | Labelled launches | Events | Best `max_depth` / `eta` / rounds | CV mean ROC-AUC | Holdout precision | Holdout recall | Holdout F1 | Holdout ROC-AUC |
-|---|---|---|---|---|---|---|---|---|
-| `success` | TBD | TBD failures | TBD | TBD | TBD | TBD | TBD | TBD |
-| `delay` | TBD | TBD delays | TBD | TBD | TBD | TBD | TBD | TBD |
+| Model | Labelled launches | Delays | Best settings | CV mean ROC-AUC | Holdout accuracy | Holdout precision | Holdout recall | Holdout F1 | Holdout ROC-AUC | Holdout PR-AUC |
+|---|---|---|---|---|---|---|---|---|---|---|
+| XGBoost | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| RandomForest | TBD | TBD | TBD | n/a (not in `evaluate.py` yet) | TBD | TBD | TBD | TBD | TBD | TBD |
 
 Things to note once results arrive:
-- Failures are rare, so some time folds may contain no failures. ROC-AUC is undefined for those folds and they are skipped. Report how many folds were valid.
+- Delays may be rare in some time folds. ROC-AUC and PR-AUC are undefined for folds with no delays, and those folds are skipped. Report how many folds were valid.
 - The delay model only covers launches with schedule notes, mostly from 2020 onward. It should not be read as covering earlier launches.
 
 ---
 
 ## 8. Feature importance
 
-> **Placeholder.** Fill in from `feature_importance` in `reports/model_evaluation.json`.
+> **Placeholder.** Filled in alongside §7. XGBoost importance comes from `feature_importance` in `reports/model_evaluation.json` (gain); the RandomForest prints impurity-based importance, which is on a different scale.
 
-| Rank | `success` model feature | Gain | `delay` model feature | Gain |
-|---|---|---|---|---|
-| 1 | TBD | TBD | TBD | TBD |
-| 2 | TBD | TBD | TBD | TBD |
-| 3 | TBD | TBD | TBD | TBD |
-| 4 | TBD | TBD | TBD | TBD |
-| 5 | TBD | TBD | TBD | TBD |
-| 6 | TBD | TBD | TBD | TBD |
+| Rank | `delay` model feature | Gain |
+|---|---|---|
+| 1 | TBD | TBD |
+| 2 | TBD | TBD |
+| 3 | TBD | TBD |
+| 4 | TBD | TBD |
+| 5 | TBD | TBD |
+| 6 | TBD | TBD |
 
 A gain of 0 means the feature was never used in a split. Gain shows how much a feature helps the trees. It does not show which direction it pushes predictions.
 
@@ -170,25 +190,24 @@ A gain of 0 means the feature was never used in a split. Gain shows how much a f
 
 ## 9. Known gaps
 
-### 9.1 Upper-level winds are not in the model
+### 9.1 Upper-level winds
 
-The project's issue #36 asks how upper-level wind shear affects predictions. **The current model can't answer that**, because no upper-air feature reaches it:
+The project's issue #36 asks how upper-level wind shear affects predictions. Where things stand:
 
-- **The upper-air data exists but isn't on `main`.** PR #38 added IGRA radiosonde winds to `fetch_weather.py`, with columns such as `upper_wind_max_kmh`, `upper_wind_max_alt_km`, and `upper_wind_speed_{2..30}km_kmh` / `upper_wind_dir_{2..30}km_deg`. It was merged into `data/integration`, not `main`.
-- **The model branch was cut before that work.** `data/ml-baseline` branched from `main` at `f084530` (Oct 30), so `train_model.py` was written against a dataset without upper-air columns.
-- **The placeholder on `main` adds nothing.** `high_altitude_wind_assumed` equals the surface wind (§4).
+| Piece | Where | Status |
+|---|---|---|
+| Upper-air data | `fetch_weather.py` on `main` (PR #38, via `data/integration`) | Measured NOAA IGRA2 radiosonde winds: `upper_wind_max_kmh`, `upper_wind_max_alt_km`, and `upper_wind_speed_{2..30}km_kmh` / `upper_wind_dir_{2..30}km_deg`, all in km/h ([`DATA.md`](DATA.md) §9). On the 2026-11-17 fetch, 708 of 745 launches have `upper_wind_max_kmh` |
+| XGBoost | `train_model.py` | **Not used on `main`.** `feature/add-windspeed` adds `upper_wind_max_kmh` to `NUMERIC_FEATURES` (not merged yet) |
+| RandomForest | `train_random_forest.py` on `data/random-forest` | Uses `upper_wind_max_kmh` (§5.1) |
+| Trajectory risk link | `src/physics/trajectory.py` on `physics/ml-solver-fusion` | Passes an optional `upper_wind_max` (m/s, converted to km/h) to the model |
+| Placeholder | `high_altitude_wind_assumed`, `wind_speed_ratio` | Removed 2026-11-18 (they were copies of the surface wind, and the ratio was always 1) |
 
-To add them:
-1. Merge `data/integration` into `main`.
-2. Re-run `fetch_weather.py` and `build_features.py`.
-3. Add the chosen upper-air columns to `NUMERIC_FEATURES` in `train_model.py`.
-
-Which columns to use is still a team decision: maximum wind, wind at fixed altitudes, or a derived shear (for example, the speed difference between altitude bands, which is not computed anywhere yet).
+Cautions:
+- Two corrupted Vandenberg soundings (2024-10-30 and 2024-12-05) are still in the `upper_wind_*` values. See [`DATA.md`](DATA.md) §9.2; the fix is waiting on a PM decision.
+- Only the peak wind is used so far. Fixed-height winds or a derived shear (speed difference between height bands, not computed anywhere yet) are still options for issue #36.
 
 ### 9.2 Other open items
-- Delay is a classifier, not the regressor described in DELIVERABLES (§1).
-- The Amos-6 exclusion is unmerged (§2.1).
-- `payload_ratio` is unused because there is no capacity source (§4).
+- `payload_mass_kg` stays an input: the XGBoost model does worse without it, though it leaves Starship out of training ([`DATA.md`](DATA.md) §7.8).
 
 ---
 
@@ -199,7 +218,7 @@ python src/data/fetch_spacex.py
 python src/data/fetch_weather.py
 python src/data/build_features.py
 python src/models/train_model.py   # writes models/baseline_model.pkl
-python src/models/evaluate.py      # after PR #49 merges; writes reports/model_evaluation.json
+python src/models/evaluate.py      # writes reports/model_evaluation.json
 ```
 
 All data outputs stay under the git-ignored `data/` folder (see [`DATA.md`](DATA.md)).
