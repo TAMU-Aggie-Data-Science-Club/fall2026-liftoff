@@ -57,6 +57,8 @@ Checks `src/physics/atmosphere.py` against published US Standard Atmosphere 1976
 
 `test_calibration.py` (5 checks) is not a physics test: it checks the delay model's Platt calibration in `src/models/train_model.py` (see [`MODELING.md`](../MODELING.md) §5.1). It needs xgboost and pandas as well as numpy. Run it with `python -m tests.test_calibration`.
 
+`test_weather_go.py` (3 checks) covers the weather-go forecast parser in `src/data/weather_go.py` (see [`DATA.md`](../DATA.md) §7.10). Run it with `python -m tests.test_weather_go`.
+
 ---
 
 ## 4. Notes

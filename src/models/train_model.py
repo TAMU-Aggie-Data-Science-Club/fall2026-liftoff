@@ -2,6 +2,7 @@
 
 import pickle
 import re
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -9,6 +10,11 @@ import pandas as pd
 import xgboost as xgb
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+# Run as a script (python src/models/train_model.py) or imported as src.models.train_model.
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+from src.data.weather_go import latest_weather_go  # noqa: E402
+
 FEATURES_PATH = REPO_ROOT / "data" / "processed" / "ml_features.csv"
 UPDATES_PATH = REPO_ROOT / "data" / "raw" / "spacex_launch_updates.csv"
 MODEL_PATH = REPO_ROOT / "models" / "baseline_model.pkl"
@@ -19,9 +25,21 @@ NUMERIC_FEATURES = [
     "precipitation",
     "cloud_cover",
     "payload_mass_kg",
+    "low_weather_go",
 ]
 CATEGORICAL_FEATURES = ["rocket_type"]
 FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES
+# Numeric inputs that may be blank: launches missing them are kept, not dropped
+# (user decision 2026-11-21, DATA.md §2). Both models handle a blank natively.
+OPTIONAL_NUMERIC_FEATURES = ["low_weather_go"]
+
+# low_weather_go (DATA.md §7.10): 1 if the latest weather-go forecast posted after the baseline
+# note, before the baseline target, and before the target first moved, was under this percentage; 0 if it
+# was at or above it; blank if no forecast was posted in time. Forecasts come a day or two
+# before the target, so most launches have none a week out.
+LOW_WEATHER_GO_PCT = 50
+# A later note counts as moving the target if it shifts it by more than this.
+TARGET_MOVE_TOLERANCE = pd.Timedelta(hours=1)
 
 # Each model: target column, the label value we care about catching, and its name.
 # One model: on time (0) vs delayed (1). The old success/failure model was dropped
@@ -173,6 +191,55 @@ def delay_labels(launches: pd.DataFrame) -> pd.Series:
     return is_delayed.where(gap.notna())
 
 
+def low_weather_go_flag(go_pct: float | None) -> float:
+    """1.0 if a weather-go % is under LOW_WEATHER_GO_PCT, 0.0 if not, NaN if there is none.
+
+    For a live prediction, pass the GO % the dashboard user entered (None if left empty).
+    """
+    if go_pct is None or pd.isna(go_pct):
+        return np.nan
+    return float(go_pct < LOW_WEATHER_GO_PCT)
+
+
+def forecast_cutoff(baseline: pd.DataFrame, schedule: pd.DataFrame) -> pd.Series:
+    """Per launch_id: the latest time a weather-go forecast may be posted and still be used.
+
+    That is the baseline target, or the first later note that moves the target by more than
+    TARGET_MOVE_TOLERANCE, whichever comes first. A forecast posted after a move already
+    knows about the delay, so using it would leak the outcome.
+
+    baseline: baseline_notes() output (index launch_id; target, created_on).
+    schedule: schedule_notes() output (launch_id, created_on, target).
+    """
+    notes = schedule.join(baseline.add_suffix("_base"), on="launch_id", how="inner")
+    moved = notes[
+        (notes["created_on"] > notes["created_on_base"])
+        & ((notes["target"] - notes["target_base"]).abs() > TARGET_MOVE_TOLERANCE)
+    ]
+    first_move = moved.groupby("launch_id")["created_on"].min()
+    return pd.concat([baseline["target"], first_move], axis=1).min(axis=1)
+
+
+def low_weather_go_by_launch(
+    updates: pd.DataFrame, cutoff: pd.Series, since: pd.Series | None = None
+) -> pd.Series:
+    """Per launch_id in cutoff: low_weather_go from the latest forecast posted by its cutoff.
+
+    since: per launch_id, the baseline note's created_on. Forecasts posted before it were
+    for an earlier target date, so they are ignored.
+    """
+    since = since if since is not None else pd.Series(dtype=object)
+    return pd.Series(
+        {
+            launch_id: low_weather_go_flag(
+                latest_weather_go(updates, launch_id, as_of, since.get(launch_id))
+            )
+            for launch_id, as_of in cutoff.items()
+        },
+        dtype=float,
+    )
+
+
 def load_launches() -> pd.DataFrame:
     df = pd.read_csv(FEATURES_PATH)
     df = df[~df["launch_id"].isin(EXCLUDED_LAUNCHES)].copy()
@@ -181,6 +248,11 @@ def load_launches() -> pd.DataFrame:
     )
     df["launch_timestamp_utc"] = pd.to_datetime(df["launch_timestamp_utc"], utc=True)
     df["is_delayed"] = delay_labels(df)
+    baseline = baseline_notes(df)
+    cutoff = forecast_cutoff(baseline, schedule_notes())
+    df["low_weather_go"] = df["launch_id"].map(
+        low_weather_go_by_launch(pd.read_csv(UPDATES_PATH), cutoff, baseline["created_on"])
+    )
     return df.sort_values("launch_timestamp_utc").reset_index(drop=True)
 
 
@@ -190,11 +262,12 @@ def usable_launches(
     """Labelled launches with every numeric model input present, sorted by launch time.
 
     Missing-data policy (DATA.md §2): a launch missing a numeric value the model uses
-    is left out of training and evaluation. Text/category gaps (rocket_type) are kept.
-    The data files themselves keep every launch.
+    is left out of training and evaluation. Text/category gaps (rocket_type) and the
+    OPTIONAL_NUMERIC_FEATURES are kept. The data files themselves keep every launch.
     """
     labelled = launches.dropna(subset=[target])
-    missing = labelled[numeric_features].isna()
+    required = [c for c in numeric_features if c not in OPTIONAL_NUMERIC_FEATURES]
+    missing = labelled[required].isna()
     dropped = {column: int(count) for column, count in missing.sum().items() if count}
     if dropped:
         print(f"  Left out {int(missing.any(axis=1).sum())} of {len(labelled)} labelled "
@@ -204,8 +277,12 @@ def usable_launches(
 
 
 def prepare_features(df: pd.DataFrame, rocket_categories: list[str]) -> pd.DataFrame:
-    """Select model inputs; rocket types unseen in training become missing."""
-    features = df[FEATURE_COLUMNS].copy()
+    """Select model inputs; rocket types unseen in training become missing.
+
+    An optional input the caller did not supply (e.g. no weather-go forecast yet) is blank.
+    """
+    absent = {c: np.nan for c in OPTIONAL_NUMERIC_FEATURES if c not in df}
+    features = df.assign(**absent)[FEATURE_COLUMNS].copy()
     for column in NUMERIC_FEATURES:
         features[column] = pd.to_numeric(features[column], errors="coerce")
     features["rocket_type"] = pd.Categorical(

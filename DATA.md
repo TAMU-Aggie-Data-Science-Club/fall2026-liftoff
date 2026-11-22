@@ -36,6 +36,7 @@ Decided 2026-11-17:
 
 - **Text, labels and other values the model does not compute with** (for example `rocket_type`, `upper_wind_station`, `weather_source`): a gap is fine. Store it as `null` and keep the launch.
 - **A missing number the model uses:** the launch is **left out of training and evaluation**. A launch cannot be modelled without the numbers it needs. Only the model's numeric inputs count (`NUMERIC_FEATURES` in `train_model.py`, `RF_NUMERIC_FEATURES` for the RandomForest). A gap in a column the model does not use, such as a fixed-height wind, does not remove the launch.
+- **Exception: optional inputs** (`OPTIONAL_NUMERIC_FEATURES` in `train_model.py`). A launch missing one is kept, and the input stays blank; both models handle a blank natively. Today this is only `low_weather_go`, which most launches lack a week out (decided 2026-11-21, [§7.10](#710-weather-go-forecasts-checked-2026-11-18)).
 - **Never fill a missing number** with 0 or any other value. Keep it as `null` (JSON `null` / pandas `NaN`).
 - **The pipeline keeps every row.** The fetchers and `build_features.py` do not drop launches; the drop happens when the models load the data (`usable_launches()` in `train_model.py`), and the scripts print how many launches were left out and why. That way a gap that gets filled later (for example, NOAA publishing a late sounding) brings the launch back on the next fetch.
 - Which columns are model inputs is set by the feature list, which the EDA ([§7.8](#78-recommendations)) may change. The rule follows that list automatically.
@@ -452,7 +453,47 @@ Two scripts produce different tables from the same raw files. This report and th
 
 Neither script reads the other's output.
 
-### 7.10 Still to document
+### 7.10 Weather-go forecasts (checked 2026-11-18)
+
+Research (one-off scripts, not in the repo). Since 2026-11-21 the pre-slip forecast is a model input, `low_weather_go` (see **Model input** at the end of this section). The question: does the published launch-weather forecast (the 45th Weather Squadron's "probability of GO") predict delays?
+
+**LL2's stored fields: not used.** LL2's detailed launch data has `probability` (weather-go %) and `weather_concerns` (the weather rules at risk, e.g. "Cumulus Cloud Rule", "Liftoff Winds"). `fetch_spacex.py` does not save them. A one-off fetch (2026-11-18) found:
+
+| Field | Labelled launches with a value | Relationship with delays |
+|---|---|---|
+| `probability` | 237 of 367 (53 delayed) | None: median 90% for both on-time and delayed launches, AUC 0.52 |
+| `weather_concerns` | 142 of 367 | Backwards: launches with concerns were delayed *less* often (17% vs 25%) |
+
+LL2 keeps only the **latest** value, which is the forecast for the day the rocket actually flew. For a delayed launch, that forecast was made after the delay, so it describes the outcome instead of predicting it. **Decision (2026-11-18): do not save or use these two fields.**
+
+**Weather-go % in the schedule notes: a real signal, but only close to launch.** The notes in `spacex_launch_updates.csv` include time-stamped forecast updates, e.g. "Updated launch weather, 55% GO", "Weather 80%", "Updating Weather POG to 40%". 547 notes on 343 launches give a percentage (parsed from notes that mention weather, POG or "% GO"). They are posted a median of 1.8 days before liftoff and rarely more than 5 days before.
+
+To avoid leakage, the value used for a launch is the latest one posted **before the baseline target and before any note moved that target**: the forecast as it stood before anyone knew the launch would slip. The model input below also ignores forecasts posted before the baseline note, since those were for an earlier target date (code review, 2026-11-21).
+
+| When the value is read | Labelled launches | Delays | Median GO%, on time / delayed | AUC (lower GO% → delay) |
+|---|---|---|---|---|
+| By the baseline note (the week-ahead model's time) | 9 | 6 | 85 / 80 | too few |
+| Before the baseline target and before any slip | **132** | 21 | **80 / 50** | **0.67** (95% interval 0.52 to 0.82) |
+| Latest before actual liftoff (leaks the outcome, for comparison) | 204 | 45 | 85 / 85 | 0.52 |
+
+- **Stable over time,** unlike every other feature in §7.5: AUC 0.66 for 2021-23 (59 launches, 14 delays) and 0.68 for 2024-26 (73 launches, 7 delays).
+- **Easy to read:** with a forecast under 50% GO, 38% of launches were delayed (10 of 26). At 50% or above, 10% were (11 of 106). Under 70%: 28% vs 9%.
+- **Not available a week ahead.** The forecast comes a median of 1.4 days before the target, so it cannot feed the week-ahead delay model ([`MODELING.md`](MODELING.md) §2). It suits a short-range prediction made a day or two before launch.
+- **Fitted models could not be judged.** Logistic regressions trained only on earlier launches (GO% alone, with target-time weather, or with the schedule features) scored ROC-AUC 0.57 to 0.69 on the later 82 launches, but those hold only 9 delays, so every interval spans roughly 0.35 to 0.9. None beat reading GO% directly.
+- **Coverage depends on LL2's volunteer editors** posting a forecast before the target (132 of 367 labelled launches), so the covered launches may not be typical.
+
+**Decision (2026-11-18, replaced 2026-11-21 by the model input below):** no model change for now. Propose a short-range indicator (latest pre-launch forecast under 50% GO → delays historically about 4× more common) to the dashboard team ([§10](#10-open-questions-for-the-pm)), and revisit a fitted short-range model once more delays have a forecast.
+
+**Helper:** `src/data/weather_go.py` has `parse_weather_go(comment)` (the percentage in one note) and `latest_weather_go(updates, launch_id, as_of, since=None)` (the latest value posted at or before `as_of`, and at or after `since` if given; pass the time the prediction is made, or it leaks the outcome). It uses the same parsing as the counts above. **Live use: the user enters the GO % (decided 2026-11-21).** No upcoming-launch notes are fetched. `fetch_spacex.py` only downloads launches that have flown (`launches/previous/`). An automatic fill from LL2's `launches/upcoming/` endpoint (15 calls/hour, so it would need a cache) is only worth adding if the dashboard gets an upcoming-launches view or tracks its predictions live.
+
+**Model input (decided 2026-11-21):** `low_weather_go` is a numeric input to the delay models: **1** if the pre-slip forecast above was under 50% GO, **0** if it was 50% or more, **blank** if no forecast was posted in time. `train_model.py` builds it in `load_launches()` (`forecast_cutoff()`, `low_weather_go_by_launch()`, threshold `LOW_WEATHER_GO_PCT`), using `latest_weather_go()` above.
+- **Why a yes/no flag and not the percentage:** in a rolling test on 2025-26 launches (131 launches, 14 delays, current inputs plus `upper_wind_max_kmh`), the flag raised ROC-AUC by +0.10 for both XGBoost (0.62 → 0.72, 95% interval +0.04 to +0.17) and the RandomForest (0.54 → 0.65, +0.04 to +0.18). The raw percentage gained +0.07 to +0.08.
+- **Not a missingness effect:** launches without a forecast are delayed more often (25% vs 17%), but a "has a forecast" flag on its own added nothing (+0.00 / +0.01). The gain comes from the forecast's value. On the XGBoost holdout (2026-11-21 code review; 103 newest launches, 10 delays; mean of 5 seeds), the flag alone did add a little: ROC-AUC 0.518 without the input, 0.568 with only "has a forecast", 0.626 with `low_weather_go`. Reading every forecast at a fixed 24 h before the baseline target, instead of at the first slip, gave 0.623, so the slip-dependent cutoff is not inflating the result. At 48 h it gave 0.461, since most forecasts are not out yet.
+- **Blank is allowed:** it is exempt from the missing-data policy ([§2](#2-missing-data-policy)). Of the 347 usable launches, 124 have a value (24 under 50% GO, 38% of them delayed; 100 at 50% or more, 9% delayed). The other 223 stay in training with a blank (26% delayed). (Before the 2026-11-21 fix that drops forecasts older than the baseline note: 129, 25 and 104.)
+- **What it changes:** the model is no longer purely week-ahead. A week out the input is usually blank; a day or two before launch, once a forecast is posted, it sharpens the prediction ([`MODELING.md`](MODELING.md) §3).
+- **Live use:** the dashboard user enters the GO %, and `low_weather_go_flag(go_pct)` turns it into the input; an empty field is blank (above).
+
+### 7.11 Still to document
 
 Documentation for the physics data has not been added to this file yet.
 
@@ -536,10 +577,12 @@ Not examined yet: four other soundings with 1 to 4 spike levels each (Cape Kenne
 
 ## 10. Open questions for the PM
 
-No open questions right now. Add new ones here as they come up.
+- **Short-range weather indicator (for the dashboard team):** show the latest LL2 weather-go forecast before launch, flagged when it is under 50% GO (delays were about 4× more common: 38% vs 10%, [§7.10](#710-weather-go-forecasts-checked-2026-11-18))? The data side can provide the parsed value; how and whether to show it is the dashboard team's call. (Since 2026-11-21 it is also a model input, `low_weather_go`.)
 
 **Resolved (2026-11-18):**
 
+- **Forecast weather (option C):** train on observed weather now; add a forecast archive (e.g. Open-Meteo's Previous Runs, from 2024) later. That archive will still need adding to the source register when adopted.
+- **LL2 `probability` and `weather_concerns`:** not saved or used; LL2 stores the final-day value, which leaks the outcome ([§7.10](#710-weather-go-forecasts-checked-2026-11-18)).
 - **Probability calibration:** the raw delay probabilities averaged 0.33 to 0.50 against an actual 2025-26 rate of 0.11 ([§7.8](#78-recommendations)). They are now calibrated with Platt scaling fitted on the last 12 months ([`MODELING.md`](MODELING.md) §5.1).
 - **Placeholder and ratio columns:** `high_altitude_wind_assumed`, `wind_speed_ratio` and `payload_ratio` were removed ([§7.2](#72-feature-table-columns)).
 - **Payload as a model input:** kept, because the XGBoost model does worse without it; Starship stays out of training as a result ([§7.8](#78-recommendations)).
